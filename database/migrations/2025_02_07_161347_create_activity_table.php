@@ -20,6 +20,7 @@ return new class extends Migration {
             $table->text('actDesc');
             $table->enum('actDifficulty', ['Beginner', 'Intermediate', 'Advanced']);
             $table->string('actDuration', 8)->nullable();
+            $table->integer('actAttempts');
             $table->dateTime('openDate');
             $table->dateTime('closeDate');
             $table->integer('maxPoints')->default(100);

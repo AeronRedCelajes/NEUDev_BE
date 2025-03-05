@@ -8,7 +8,8 @@ use App\Http\Controllers\Api\ActivityController;
 use App\Http\Controllers\Api\ItemController; // Renamed from QuestionController if applicable
 use App\Http\Controllers\Api\ItemTypeController;
 use App\Http\Controllers\Api\ProgrammingLanguageController;
-use App\Http\Controllers\AssessmentController;
+use App\Http\Controllers\Api\AssessmentController;
+use App\Http\Controllers\Api\BulletinController;
 
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Route;
@@ -127,6 +128,11 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::get('/activities/{actID}/leaderboard', [ActivityController::class, 'showActivityLeaderboardByTeacher']);
         Route::get('/activities/{actID}/settings', [ActivityController::class, 'showActivitySettingsByTeacher']);
         Route::put('/activities/{actID}/settings', [ActivityController::class, 'updateActivitySettingsByTeacher']);
+
+        // 📌 Bulletin Board Routes (Newly Added)
+        Route::get('/class/{classID}/bulletin', [BulletinController::class, 'index']); // Get posts by class
+        Route::post('/bulletin', [BulletinController::class, 'store']); // Create a new post
+        Route::delete('/bulletin/{id}', [BulletinController::class, 'destroy']); // Delete a post
     });
 
     // -------------------------------

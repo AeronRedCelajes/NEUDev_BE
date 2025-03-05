@@ -1,9 +1,10 @@
 <?php
 
-namespace App\Http\Controllers;
+namespace App\Http\Controllers\Api;
 
 use App\Models\Assessment;
 use Illuminate\Http\Request;
+use App\Http\Controllers\Controller;
 
 class AssessmentController extends Controller
 {
@@ -18,22 +19,21 @@ class AssessmentController extends Controller
 
     /**
      * Store a newly created assessment in storage.
+     *
+     * Note: Only teacher-provided fields (testCases, extraData).
      */
     public function store(Request $request)
     {
         $validatedData = $request->validate([
-            'actID'       => 'required|exists:activities,actID',
-            'itemID'      => 'nullable|exists:items,itemID',
-            'itemTypeID'  => 'nullable|exists:item_types,itemTypeID',
-            'testCases'   => 'nullable|string',
-            'submittedCode' => 'nullable|string',
-            'result'      => 'nullable|string',
-            'executionTime' => 'nullable|string',
-            'progLang'    => 'nullable|string',
-            'extraData'   => 'nullable|json',
+            'actID'      => 'required|exists:activities,actID',
+            'itemID'     => 'nullable|exists:items,itemID',
+            'itemTypeID' => 'nullable|exists:item_types,itemTypeID',
+            'testCases'  => 'nullable|string',
+            'extraData'  => 'nullable|json',
         ]);
 
         $assessment = Assessment::create($validatedData);
+
         return response()->json($assessment, 201);
     }
 
@@ -54,15 +54,12 @@ class AssessmentController extends Controller
         $assessment = Assessment::findOrFail($id);
 
         $validatedData = $request->validate([
-            'testCases'     => 'nullable|string',
-            'submittedCode' => 'nullable|string',
-            'result'        => 'nullable|string',
-            'executionTime' => 'nullable|string',
-            'progLang'      => 'nullable|string',
-            'extraData'     => 'nullable|json',
+            'testCases' => 'nullable|string',
+            'extraData' => 'nullable|json',
         ]);
 
         $assessment->update($validatedData);
+
         return response()->json($assessment);
     }
 
@@ -73,6 +70,7 @@ class AssessmentController extends Controller
     {
         $assessment = Assessment::findOrFail($id);
         $assessment->delete();
+
         return response()->json(null, 204);
     }
 }

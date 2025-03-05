@@ -18,10 +18,6 @@ class Assessment extends Model
         'itemID',
         'itemTypeID',
         'testCases',
-        'submittedCode',
-        'result',
-        'executionTime',
-        'progLang',
         'extraData'
     ];
 

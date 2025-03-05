@@ -4,30 +4,18 @@ use Illuminate\Database\Migrations\Migration;
 use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Support\Facades\Schema;
 
-return new class extends Migration
-{
-    /**
-     * Run the migrations.
-     */
+return new class extends Migration {
     public function up(): void
     {
         Schema::create('assessments', function (Blueprint $table) {
             $table->id('assessmentID');
-            // Link to the activity. Use unsignedBigInteger to match the activities table.
             $table->unsignedBigInteger('actID');
-            // Optional link to a specific item, if needed
             $table->unsignedBigInteger('itemID')->nullable();
-            // Optional link to the item type, providing extra flexibility
             $table->unsignedBigInteger('itemTypeID')->nullable();
             
-            // Use text for fields that might be lengthy, and allow them to be nullable.
+            // Test cases provided by the teacher (e.g. in JSON format)
             $table->text('testCases')->nullable();
-            $table->text('submittedCode')->nullable();
-            $table->string('result')->nullable();
-            $table->string('executionTime')->nullable();
-            $table->string('progLang')->nullable();
-            
-            // Extra data stored as JSON for any item-specific details
+            // Extra configuration data stored as JSON
             $table->json('extraData')->nullable();
 
             $table->timestamps();
@@ -48,9 +36,6 @@ return new class extends Migration
         });
     }
 
-    /**
-     * Reverse the migrations.
-     */
     public function down(): void
     {
         Schema::dropIfExists('assessments');

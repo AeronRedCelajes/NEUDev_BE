@@ -20,6 +20,7 @@ class Activity extends Model
         'actDesc',
         'actDifficulty',
         'actDuration',
+        'actAttempts',
         'openDate',
         'closeDate',
         'maxPoints',
