@@ -16,12 +16,18 @@ class ActivitySubmission extends Model
     protected $fillable = [
         'actID',
         'studentID',
-        'itemID',        // was questionID
-        'codeSubmission',
+        'itemID',
+        'attemptNo',       // new field for tracking attempt number
+        'codeSubmission',  // will store JSON string for multiple files
         'score',
         'rank',
         'timeSpent',
         'submitted_at',
+    ];
+
+    // Cast the codeSubmission field to array automatically.
+    protected $casts = [
+        'codeSubmission' => 'array',
     ];
 
     /**
@@ -41,7 +47,7 @@ class ActivitySubmission extends Model
     }
 
     /**
-     * Get the item (formerly question) linked to this submission.
+     * Get the item linked to this submission.
      */
     public function item()
     {

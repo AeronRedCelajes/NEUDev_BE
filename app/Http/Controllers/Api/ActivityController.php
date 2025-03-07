@@ -84,7 +84,7 @@ class ActivityController extends Controller
 
     /**
      * Attach Rank, Overall Score, and other details for the student in the activity list.
-     * Now includes "scorePercentage".
+     * Now includes "scorePercentage" and a formatted timeSpent.
      */
     private function attachStudentDetails($activities, $student)
     {
@@ -103,14 +103,24 @@ class ActivityController extends Controller
             $rankIndex = array_search($student->studentID, $rankQuery);
             $rank = $rankIndex !== false ? $rankIndex + 1 : null;
 
-            // Calculate the student's overall score and percentage
-            $score = $submission->score ?? 0;
-            $maxPoints = $activity->maxPoints ?: 1; // to avoid division by zero
+            // Calculate the student's overall score and percentage.
+            $score = $submission ? $submission->score : 0;
+            $maxPoints = $activity->maxPoints ?: 1; // avoid division by zero
 
-            $scorePercentage = null;
-            if ($submission && $submission->score !== null && $activity->maxPoints > 0) {
-                $scorePercentage = round(($submission->score / $activity->maxPoints) * 100, 2);
-            }
+            $scorePercentage = ($submission && $activity->maxPoints > 0)
+                ? round(($score / $activity->maxPoints) * 100, 2)
+                : null;
+
+            // Format timeSpent (assumed stored in seconds) into HH:MM:SS.
+            $formattedTimeSpent = ($submission && $submission->timeSpent !== null)
+                ? $this->formatSecondsToHMS($submission->timeSpent)
+                : '-';
+
+            // Retrieve attemptsTaken from the pivot table activity_student.
+            $attemptsTaken = DB::table('activity_student')
+                ->where('actID', $activity->actID)
+                ->where('studentID', $student->studentID)
+                ->value('attemptsTaken');
 
             return [
                 'actID'               => $activity->actID,
@@ -120,20 +130,32 @@ class ActivityController extends Controller
                 'teacherName'         => optional($activity->teacher)->firstname . ' ' . optional($activity->teacher)->lastname,
                 'actDifficulty'       => $activity->actDifficulty,
                 'actDuration'         => $activity->actDuration,
+                'actAttempts'         => $activity->actAttempts,
                 'openDate'            => $activity->openDate,
                 'closeDate'           => $activity->closeDate,
-
                 'programmingLanguages'=> $activity->programmingLanguages->isNotEmpty()
                     ? $activity->programmingLanguages->pluck('progLangName')->toArray()
                     : 'N/A',
-
-                // Student-specific fields
+                // Student-specific fields.
                 'rank'               => $rank,
                 'overallScore'       => $score,
                 'maxPoints'          => $activity->maxPoints,
                 'scorePercentage'    => $scorePercentage,
+                'attemptsTaken'      => $attemptsTaken ? $attemptsTaken : 0,
+                'studentTimeSpent'   => $formattedTimeSpent,
             ];
         });
+    }
+
+    /**
+     * Helper: Format seconds into HH:MM:SS.
+     */
+    private function formatSecondsToHMS($seconds)
+    {
+        $hours = floor($seconds / 3600);
+        $minutes = floor(($seconds % 3600) / 60);
+        $secs = $seconds % 60;
+        return sprintf("%02d:%02d:%02d", $hours, $minutes, $secs);
     }
 
     /**
@@ -487,7 +509,7 @@ class ActivityController extends Controller
                 ->where('studentID', $student->studentID)
                 ->first();
 
-            // Map test cases into an array
+            // Map test cases into an array.
             $testCases = $ai->item->testCases->map(function ($tc) {
                 return [
                     'testCaseID'     => $tc->testCaseID,
@@ -504,17 +526,14 @@ class ActivityController extends Controller
                 'itemDesc'       => $ai->item->itemDesc ?? '',
                 'itemDifficulty' => $ai->item->itemDifficulty ?? 'N/A',
                 'itemType'       => $ai->itemType->itemTypeName ?? 'N/A',
-
-                // Points for this item within the activity
                 'actItemPoints'  => $ai->actItemPoints,
                 'testCaseTotalPoints' => $ai->item->testCases->sum('testCasePoints'),
-
-                // The array of test cases
-                'testCases' => $testCases,
-
-                // Student-specific fields
-                'studentScore'     => $submission ? $submission->score : null,
-                'studentTimeSpent' => $submission ? $submission->timeSpent . ' min' : '-',
+                'testCases'      => $testCases,
+                'studentScore'   => $submission ? $submission->score : null,
+                // Convert timeSpent (integer, seconds) to HH:MM:SS.
+                'studentTimeSpent' => $submission && $submission->timeSpent !== null
+                    ? $this->formatSecondsToHMS($submission->timeSpent)
+                    : '-',
                 'submissionStatus' => $submission ? 'Submitted' : 'Not Attempted',
             ];
         });
@@ -523,9 +542,11 @@ class ActivityController extends Controller
             'activityName' => $activity->actTitle,
             'actDesc'      => $activity->actDesc,
             'maxPoints'    => $activity->maxPoints,
-            // Add the activity duration so the front end can display or run a timer
             'actDuration'  => $activity->actDuration,
-            'actAttempts'       => $activity->actAttempts,
+            'actAttempts'  => $activity->actAttempts,
+            'attemptsTaken'=> ActivitySubmission::where('actID', $activity->actID)
+                                ->where('studentID', $student->studentID)
+                                ->count(),
             'allowedLanguages' => $activity->programmingLanguages->map(function ($lang) {
                 return [
                     'progLangID'        => $lang->progLangID,
@@ -629,7 +650,6 @@ class ActivityController extends Controller
             'activityName' => $activity->actTitle,
             'actDesc'      => $activity->actDesc,
             'maxPoints'    => $activity->maxPoints,
-            // Add the activity duration so the front end can display or run a timer
             'actDuration'  => $activity->actDuration,
             'allowedLanguages' => $activity->programmingLanguages->map(function ($lang) {
                 return [
@@ -654,12 +674,15 @@ class ActivityController extends Controller
 
     /**
      * Calculate the average time spent by students on an activity item.
+     * Assumes timeSpent is stored as an integer (seconds), so we format the average to HH:MM:SS.
      */
     private function calculateAverageTimeSpent($itemID, $actID)
     {
-        return ActivitySubmission::where('actID', $actID)
+        $avgSeconds = ActivitySubmission::where('actID', $actID)
             ->where('itemID', $itemID)
-            ->avg('timeSpent') ?? '-';
+            ->avg('timeSpent');
+
+        return $avgSeconds !== null ? $this->formatSecondsToHMS(round($avgSeconds)) : '-';
     }
 
     public function showActivityLeaderboardByTeacher($actID)
@@ -757,5 +780,44 @@ class ActivityController extends Controller
         $activity->update($validatedData);
 
         return response()->json(['message' => 'Activity settings updated successfully.']);
+    }
+
+    ///////////////////////////////////////////////////
+    // NEW FUNCTION: Overall Student Score Across Activities
+    ///////////////////////////////////////////////////
+    public function getStudentOverallScore($classID)
+    {
+        $student = Auth::user();
+        if (!$student || !$student instanceof \App\Models\Student) {
+            return response()->json(['message' => 'Unauthorized'], 403);
+        }
+
+        // Get all activities in the given class.
+        $activities = Activity::where('classID', $classID)->get();
+
+        $totalScore = 0;
+        $totalMaxPoints = 0;
+
+        foreach ($activities as $activity) {
+            // Assume one final submission per activity per student.
+            $submission = ActivitySubmission::where('actID', $activity->actID)
+                ->where('studentID', $student->studentID)
+                ->orderBy('submitted_at', 'desc')
+                ->first();
+            if ($submission) {
+                $totalScore += $submission->score;
+            }
+            $totalMaxPoints += $activity->maxPoints;
+        }
+
+        $averagePercentage = $totalMaxPoints > 0
+            ? round(($totalScore / $totalMaxPoints) * 100, 2)
+            : 0;
+
+        return response()->json([
+            'totalScore'         => $totalScore,
+            'totalMaxPoints'     => $totalMaxPoints,
+            'averagePercentage'  => $averagePercentage,
+        ]);
     }
 }

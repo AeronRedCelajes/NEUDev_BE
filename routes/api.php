@@ -5,11 +5,14 @@ use App\Http\Controllers\Api\ProfileStudentController;
 use App\Http\Controllers\Api\ProfileTeacherController;
 use App\Http\Controllers\Api\ClassroomController;
 use App\Http\Controllers\Api\ActivityController;
+use App\Http\Controllers\Api\ActivitySubmissionController;
+use App\Http\Controllers\Api\ActivityProgressController; // NEW: Controller for progress tracking
 use App\Http\Controllers\Api\ItemController; // Renamed from QuestionController if applicable
 use App\Http\Controllers\Api\ItemTypeController;
 use App\Http\Controllers\Api\ProgrammingLanguageController;
 use App\Http\Controllers\Api\AssessmentController;
 use App\Http\Controllers\Api\BulletinController;
+use App\Http\Controllers\Api\ConcernController;
 
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Route;
@@ -72,6 +75,13 @@ Route::middleware('auth:sanctum')->group(function () {
         });
         Route::get('/activities/{actID}/items', [ActivityController::class, 'showActivityItemsByStudent']);
         Route::get('/activities/{actID}/leaderboard', [ActivityController::class, 'showActivityLeaderboardByStudent']);
+
+        // Endpoint to finalize (submit) an activity submission.
+        Route::post('/activities/{actID}/submission', [ActivitySubmissionController::class, 'finalizeSubmission']);
+
+        // NEW: Endpoints for saving and retrieving activity progress.
+        Route::get('/activities/{actID}/progress', [ActivityProgressController::class, 'getProgress']);
+        Route::post('/activities/{actID}/progress', [ActivityProgressController::class, 'saveProgress']);
     });
 
     // -------------------------------
@@ -105,7 +115,6 @@ Route::middleware('auth:sanctum')->group(function () {
         });
 
         // Item Controller endpoints
-        // Note: endpoints updated from /questions to /items for consistency.
         Route::controller(ItemController::class)->group(function () {
             Route::get('/items/itemType/{itemTypeID}', 'getByItemType');
             Route::post('/items', 'store');
@@ -129,6 +138,10 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::get('/activities/{actID}/settings', [ActivityController::class, 'showActivitySettingsByTeacher']);
         Route::put('/activities/{actID}/settings', [ActivityController::class, 'updateActivitySettingsByTeacher']);
 
+        // Under teacher prefix (for testing purposes):
+        Route::get('/activities/{actID}/progress', [ActivityProgressController::class, 'getProgress']);
+        Route::post('/activities/{actID}/progress', [ActivityProgressController::class, 'saveProgress']);
+
         // 📌 Bulletin Board Routes (Newly Added)
         Route::get('/class/{classID}/bulletin', [BulletinController::class, 'index']); // Get posts by class
         Route::post('/bulletin', [BulletinController::class, 'store']); // Create a new post
@@ -144,5 +157,25 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::get('/assessments/{id}', 'show');
         Route::put('/assessments/{id}', 'update');
         Route::delete('/assessments/{id}', 'destroy');
+    });
+
+    // -------------------------------
+    // Concern Routes
+    // -------------------------------
+    Route::prefix('concerns')->group(function () {
+        // List all concerns for a specific class
+        Route::get('/{classID}', [ConcernController::class, 'index']);
+    
+        // Show a single concern by its ID
+        Route::get('/detail/{id}', [ConcernController::class, 'show']);
+    
+        // Create a new concern
+        Route::post('/', [ConcernController::class, 'store']);
+    
+        // Update a concern (either reply or concern text)
+        Route::put('/{id}', [ConcernController::class, 'update']);
+    
+        // Delete a concern
+        Route::delete('/{id}', [ConcernController::class, 'destroy']);
     });
 });
