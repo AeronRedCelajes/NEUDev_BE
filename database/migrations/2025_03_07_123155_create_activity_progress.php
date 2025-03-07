@@ -10,23 +10,21 @@ return new class extends Migration {
         Schema::create('activity_progress', function (Blueprint $table) {
             $table->id('progressID');
             $table->unsignedBigInteger('actID');
-            // Replace studentID with polymorphic columns:
             $table->unsignedBigInteger('progressable_id');
-            $table->string('progressable_type'); // e.g., App\Models\Student or App\Models\Teacher
-            // Optionally, if you are still tracking progress per item:
-            $table->unsignedBigInteger('itemID')->nullable();
+            $table->string('progressable_type');
+            // Removed the itemID column because progress is now unified per activity:
+            // $table->unsignedBigInteger('itemID')->nullable();
 
-            // Instead of a single draft code, store the files (an array of file objects) as a JSON string.
             $table->longText('draftFiles')->nullable();
             $table->json('draftTestCaseResults')->nullable();
-            $table->integer('timeRemaining')->nullable(); // in seconds
+            $table->integer('timeRemaining')->nullable();
+            $table->string('selected_language')->nullable();
 
             $table->timestamps();
 
-            // Unique constraint per activity for each progressable and optionally per item.
-            $table->unique(['actID', 'progressable_id', 'progressable_type', 'itemID'], 'ap_unique');
+            // Unique record per activity for each user.
+            $table->unique(['actID', 'progressable_id', 'progressable_type'], 'ap_unique');
 
-            // Foreign Key for actID (assumes activities table exists)
             $table->foreign('actID')
                   ->references('actID')
                   ->on('activities')

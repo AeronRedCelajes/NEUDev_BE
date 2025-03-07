@@ -30,7 +30,6 @@ class ActivitySubmissionController extends Controller
         ]);
 
         // Create or update the submission record for this item.
-        // You could also consider keeping a history of attempts.
         $submission = ActivitySubmission::updateOrCreate(
             [
                 'actID'     => $actID,
@@ -71,7 +70,12 @@ class ActivitySubmissionController extends Controller
                 ]);
         }
 
-        // Return the submission response.
+        // Optionally, clear the progress record so a new attempt starts fresh.
+        \App\Models\ActivityProgress::where('actID', $actID)
+            ->where('progressable_id', $student->studentID)
+            ->where('progressable_type', get_class($student))
+            ->delete();
+
         return response()->json([
             'message'       => 'Submission finalized successfully.',
             'submission'    => $submission,
@@ -79,8 +83,59 @@ class ActivitySubmissionController extends Controller
         ], 200);
     }
 
-    // OPTIONAL: Add a method to save progress (draft submission)
-    // This endpoint would be called frequently (or on page unload) to update progress in the activity_progress table.
+    /**
+     * Update an existing activity submission.
+     * This allows a student to edit a previously submitted attempt.
+     */
+    public function updateSubmission(Request $request, $actID, $submissionID)
+    {
+        $student = Auth::user();
+        if (!$student || !$student instanceof \App\Models\Student) {
+            return response()->json(['message' => 'Unauthorized'], 403);
+        }
+
+        $validatedData = $request->validate([
+            'codeSubmission' => 'nullable|string',
+            'score'          => 'nullable|integer',
+            'timeSpent'      => 'nullable|integer',
+        ]);
+
+        $submission = ActivitySubmission::find($submissionID);
+        if (!$submission || $submission->studentID !== $student->studentID) {
+            return response()->json(['message' => 'Submission not found or unauthorized'], 404);
+        }
+
+        $submission->update($validatedData);
+
+        return response()->json([
+            'message'    => 'Submission updated successfully.',
+            'submission' => $submission,
+        ], 200);
+    }
+
+    /**
+     * Delete an existing activity submission.
+     */
+    public function deleteSubmission($actID, $submissionID)
+    {
+        $student = Auth::user();
+        if (!$student || !$student instanceof \App\Models\Student) {
+            return response()->json(['message' => 'Unauthorized'], 403);
+        }
+
+        $submission = ActivitySubmission::find($submissionID);
+        if (!$submission || $submission->studentID !== $student->studentID) {
+            return response()->json(['message' => 'Submission not found or unauthorized'], 404);
+        }
+
+        $submission->delete();
+
+        return response()->json(['message' => 'Submission deleted successfully.'], 200);
+    }
+
+    /**
+     * Save progress (draft submission) for an activity.
+     */
     public function saveProgress(Request $request, $actID)
     {
         $student = Auth::user();
@@ -96,8 +151,6 @@ class ActivitySubmissionController extends Controller
             'timeRemaining'       => 'nullable|integer', // seconds remaining
         ]);
 
-        // Here, you would use the new ActivityProgress model to update or create progress.
-        // For example:
         $progress = \App\Models\ActivityProgress::updateOrCreate(
             [
                 'actID'     => $actID,

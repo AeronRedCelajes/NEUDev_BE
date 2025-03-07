@@ -21,6 +21,7 @@ class Teacher extends Authenticatable
 		'lastname',
 		'email',
 		'password',
+		'lastToken',
 		'profileImage',
         'coverImage'
 	];
@@ -29,14 +30,12 @@ class Teacher extends Authenticatable
 		'password'
 	];
 
-	protected function casts(): array
-	{
-		return [
-			'password' => 'hashed'
-		];
-	}
+	protected $casts = [
+		'password' => 'hashed',
+	];
+	
 
-	    /**
+	 /*
      * Get the class created by the teacher.
      */
 	public function classes()
