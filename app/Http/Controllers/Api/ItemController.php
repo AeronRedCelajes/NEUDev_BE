@@ -222,6 +222,19 @@ class ItemController extends Controller
 
             DB::commit();
 
+            // After DB::commit() in your update method:
+            $activityItem = \App\Models\ActivityItem::where('itemID', $item->itemID)->first();
+            if ($activityItem) {
+                $activity = \App\Models\Activity::with(['items.item.testCases'])->find($activityItem->actID);
+                if ($activity) {
+                    $totalPoints = $activity->items->sum(function($ai) {
+                        // Sum up the points based on the updated test case points.
+                        return $ai->item->testCases->sum('testCasePoints');
+                    });
+                    $activity->update(['maxPoints' => $totalPoints]);
+                }
+            }
+
             return response()->json([
                 'message'    => 'Item updated successfully',
                 'data'       => $item->load(['testCases', 'programmingLanguages']),

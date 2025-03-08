@@ -11,7 +11,6 @@ return new class extends Migration {
             $table->id('submissionID');
             $table->unsignedBigInteger('actID');
             $table->unsignedBigInteger('studentID');
-            $table->unsignedBigInteger('itemID');
 
             // Track the attempt number for multiple attempts per student
             $table->integer('attemptNo')->default(1);
@@ -36,10 +35,6 @@ return new class extends Migration {
             $table->foreign('studentID')
                   ->references('studentID')
                   ->on('students')
-                  ->onDelete('cascade');
-            $table->foreign('itemID')
-                  ->references('itemID')
-                  ->on('items')
                   ->onDelete('cascade');
         });
 

@@ -79,6 +79,7 @@ Route::middleware(['auth:sanctum', 'single.session'])->group(function () {
         // Endpoint to finalize (submit) an activity submission.
         Route::post('/activities/{actID}/submission', [ActivitySubmissionController::class, 'finalizeSubmission']);
 
+
         // ASSESSMENT PAGE: Endpoints for saving and retrieving activity progress.
         Route::get('/activities/{actID}/progress', [ActivityProgressController::class, 'getProgress']);
         Route::post('/activities/{actID}/progress', [ActivityProgressController::class, 'saveProgress']);
@@ -143,6 +144,10 @@ Route::middleware(['auth:sanctum', 'single.session'])->group(function () {
         Route::get('/activities/{actID}/progress', [ActivityProgressController::class, 'getProgress']);
         Route::post('/activities/{actID}/progress', [ActivityProgressController::class, 'saveProgress']);
         Route::delete('/activities/{actID}/progress', [ActivityProgressController::class, 'clearProgress']);
+
+        // ACTIVITY SUBMISSION
+        Route::get('/activities/{actID}/submissions', [ActivitySubmissionController::class, 'index']);
+        Route::get('/activities/{actID}/review', [ActivitySubmissionController::class, 'reviewSubmissions']);
 
         // 📌 Bulletin Board Routes (Newly Added)
         Route::get('/class/{classID}/bulletin', [BulletinController::class, 'index']); // Get posts by class

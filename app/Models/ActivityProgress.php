@@ -22,9 +22,11 @@ class ActivityProgress extends Model
         'draftTestCaseResults',
         'timeRemaining',
         'selected_language',
+        'draftScore',
     ];
 
     protected $casts = [
+        'draftScore' => 'integer',
         'draftFiles' => 'array',
         'draftTestCaseResults' => 'array',
     ];
