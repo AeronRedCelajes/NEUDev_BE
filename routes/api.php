@@ -52,6 +52,8 @@ Route::middleware(['auth:sanctum', 'single.session'])->group(function () {
         ]);
     });
 
+    Route::post('/verify-password', [AuthController::class, 'verifyPassword']);
+
     // -------------------------------
     // Student Routes
     // -------------------------------

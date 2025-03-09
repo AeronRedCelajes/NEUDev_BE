@@ -186,4 +186,19 @@ class AuthController extends Controller
             'message' => 'Logout successful',
         ], 200);
     }
+
+    public function verifyPassword(Request $request)
+    {
+        // Assumes the user is already authenticated (via Sanctum)
+        $user = Auth::user();
+        if (!$user) {
+            return response()->json(['message' => 'Unauthorized'], 401);
+        }
+        
+        if (!Hash::check($request->password, $user->password)) {
+            return response()->json(['message' => 'Wrong password'], 401);
+        }
+        
+        return response()->json(['success' => true], 200);
+    }
 }

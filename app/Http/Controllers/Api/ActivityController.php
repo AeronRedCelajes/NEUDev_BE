@@ -220,7 +220,6 @@ class ActivityController extends Controller
                 'maxPoints'        => $request->maxPoints, // temporary; will recalc
                 'actAttempts'      => $request->actAttempts,
                 'classAvgScore'    => null,
-                'highestScore'     => null,
                 // Save the final score policy as provided.
                 'finalScorePolicy' => $request->finalScorePolicy,
             ]);
@@ -510,23 +509,32 @@ class ActivityController extends Controller
     public function destroy($actID)
     {
         $teacher = Auth::user();
-
+        \Log::info("Destroy activity request received", ['teacher_id' => $teacher ? $teacher->teacherID : null, 'actID' => $actID]);
+    
         if (!$teacher || !$teacher instanceof \App\Models\Teacher) {
+            \Log::warning("Unauthorized delete attempt", ['actID' => $actID]);
             return response()->json(['message' => 'Unauthorized'], 403);
         }
-
+    
         $activity = Activity::where('actID', $actID)
             ->where('teacherID', $teacher->teacherID)
             ->first();
-
+    
         if (!$activity) {
+            \Log::warning("Activity not found or unauthorized", ['teacher_id' => $teacher->teacherID, 'actID' => $actID]);
             return response()->json(['message' => 'Activity not found or unauthorized'], 404);
         }
-
-        $activity->delete();
-
-        return response()->json(['message' => 'Activity deleted successfully']);
+    
+        try {
+            $activity->delete();
+            \Log::info("Activity deleted successfully", ['actID' => $actID]);
+            return response()->json(['message' => 'Activity deleted successfully']);
+        } catch (\Exception $e) {
+            \Log::error("Error deleting activity", ['actID' => $actID, 'error' => $e->getMessage()]);
+            return response()->json(['message' => 'Error while deleting the activity.', 'error' => $e->getMessage()], 500);
+        }
     }
+    
 
     ///////////////////////////////////////////////////
     // FUNCTIONS FOR ACTIVITY MANAGEMENT PAGE FOR STUDENTS
