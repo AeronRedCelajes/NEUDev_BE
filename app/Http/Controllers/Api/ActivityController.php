@@ -679,6 +679,7 @@ class ActivityController extends Controller
     public function showActivityItemsByTeacher($actID)
     {
         $activity = Activity::with([
+            'items.item.testCases', 
             'items.item.programmingLanguages',
             'items.itemType',
             'classroom',
