@@ -11,7 +11,8 @@ class ActivityProgressController extends Controller
 {
     /**
      * Save or update progress for the authenticated user (student or teacher).
-     * This version uses a single activity-level record (no itemID) and preserves the selected language.
+     * This version uses a single activity-level record (no itemID) and preserves the selected language,
+     * and now also saves per-item times.
      */
     public function saveProgress(Request $request, $actID)
     {
@@ -28,13 +29,14 @@ class ActivityProgressController extends Controller
             return response()->json(['message' => 'User identifier not found.'], 500);
         }
         
-        // Validate progress data including the new draftScore field.
+        // Validate progress data including the new fields: draftScore and itemTimes.
         $validatedData = $request->validate([
             'draftFiles'          => 'nullable|string', // JSON string of file objects
             'draftTestCaseResults'=> 'nullable|json',
             'timeRemaining'       => 'nullable|integer',
             'selectedLanguage'    => 'nullable|string', // to preserve user's language choice
             'draftScore'          => 'nullable|integer',  // new field for storing the partial/aggregated score
+            'itemTimes'           => 'nullable|string'    // new field for per-item times (as JSON)
         ]);
         
         // Update or create the activity-level progress record.
@@ -50,6 +52,7 @@ class ActivityProgressController extends Controller
                 'timeRemaining'       => $validatedData['timeRemaining'] ?? null,
                 'selected_language'   => $validatedData['selectedLanguage'] ?? null,
                 'draftScore'          => isset($validatedData['draftScore']) ? $validatedData['draftScore'] : 0,
+                'itemTimes'           => $validatedData['itemTimes'] ?? null,  // save the per-item times data
             ]
         );
         
@@ -59,7 +62,6 @@ class ActivityProgressController extends Controller
         ], 200);
     }
     
-
     /**
      * Retrieve progress for the authenticated user for a given activity.
      * Calculates an "endTime" based on the stored timeRemaining and updated_at timestamp.
@@ -85,8 +87,7 @@ class ActivityProgressController extends Controller
                     ->first();
 
         if ($progress) {
-            // Calculate the current endTime:
-            // Based on the updated_at timestamp and the (possibly recalculated) timeRemaining.
+            // Calculate the current endTime based on the updated_at timestamp and timeRemaining.
             $updatedMs = strtotime($progress->updated_at) * 1000;
             $progress->endTime = $progress->timeRemaining !== null
                 ? $updatedMs + ($progress->timeRemaining * 1000)
@@ -99,11 +100,16 @@ class ActivityProgressController extends Controller
             $decodedResults = $progress->draftTestCaseResults 
                 ? json_decode($progress->draftTestCaseResults, true) 
                 : null;
+            // Decode itemTimes if available.
+            $decodedItemTimes = $progress->itemTimes
+                ? json_decode($progress->itemTimes, true)
+                : null;
 
             // Rename fields for client consumption.
             $progress->files = $decodedFiles;
             $progress->testCaseResults = $decodedResults;
             $progress->selectedLanguage = $progress->selected_language;
+            $progress->itemTimes = $decodedItemTimes;
 
             // Optionally remove the raw fields.
             unset($progress->draftFiles, $progress->draftTestCaseResults, $progress->selected_language);

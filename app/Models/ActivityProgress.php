@@ -23,6 +23,7 @@ class ActivityProgress extends Model
         'timeRemaining',
         'selected_language',
         'draftScore',
+        'itemTimes'
     ];
 
     protected $casts = [

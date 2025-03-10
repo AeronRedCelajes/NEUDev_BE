@@ -11,12 +11,14 @@ return new class extends Migration {
             $table->id('submissionID');
             $table->unsignedBigInteger('actID');
             $table->unsignedBigInteger('studentID');
-
-            // Track the attempt number for multiple attempts per student
+            // New column: itemID for per-item submission details.
+            $table->unsignedBigInteger('itemID');
+            
+            // Track the attempt number for multiple attempts per student per item.
             $table->integer('attemptNo')->default(1);
             
-            // Store the submitted files as a JSON string. For multiple files, 
-            // the JSON array might look like:
+            // Store the submitted files as a JSON string.
+            // For multiple files, the JSON array might look like:
             // [{"id":0, "fileName": "main", "extension": "py", "content": "print('hello')"}, ...]
             $table->longText('codeSubmission')->nullable();
             
@@ -27,7 +29,7 @@ return new class extends Migration {
             $table->dateTime('submitted_at')->nullable();
             $table->timestamps();
 
-            // Foreign key constraints
+            // Foreign key constraints.
             $table->foreign('actID')
                   ->references('actID')
                   ->on('activities')
@@ -35,6 +37,10 @@ return new class extends Migration {
             $table->foreign('studentID')
                   ->references('studentID')
                   ->on('students')
+                  ->onDelete('cascade');
+            $table->foreign('itemID')
+                  ->references('itemID')
+                  ->on('items')
                   ->onDelete('cascade');
         });
 
@@ -44,6 +50,8 @@ return new class extends Migration {
             $table->unsignedBigInteger('actID');
             $table->unsignedBigInteger('studentID');
             $table->integer('attemptsTaken')->default(0);
+            $table->integer('finalScore')->nullable();
+            $table->integer('finalTimeSpent')->nullable();
             $table->timestamps();
 
             $table->unique(['actID', 'studentID']);

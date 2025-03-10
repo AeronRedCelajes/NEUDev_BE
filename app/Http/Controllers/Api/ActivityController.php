@@ -89,39 +89,29 @@ class ActivityController extends Controller
     private function attachStudentDetails($activities, $student)
     {
         return $activities->map(function ($activity) use ($student) {
-            // Student's submission for this activity (if any).
-            $submission = ActivitySubmission::where('actID', $activity->actID)
+            // Retrieve overall attempt data from pivot table.
+            $attemptData = DB::table('activity_student')
+                ->where('actID', $activity->actID)
                 ->where('studentID', $student->studentID)
                 ->first();
     
-            // Build a ranking array for all submissions in this activity using the updated criteria.
-            $orderedSubmissions = ActivitySubmission::where('actID', $activity->actID)
-                ->orderByDesc('score')
-                ->orderBy('timeSpent')
-                ->orderBy(DB::raw("CONCAT(LOWER(students.lastname), ' ', LOWER(students.firstname))"))
-                ->join('students', 'activity_submissions.studentID', '=', 'students.studentID')
-                ->select('activity_submissions.studentID')
-                ->get()
-                ->pluck('studentID')
-                ->toArray();
+            // Use the finalScore stored in the pivot as the overall score.
+            $overallScore = $attemptData ? $attemptData->finalScore : 0;
+            $maxPoints = $activity->maxPoints ?: 1;
     
-            $rankIndex = array_search($student->studentID, $orderedSubmissions);
-            $rank = $rankIndex !== false ? $rankIndex + 1 : null;
-    
-            // Calculate the student's overall score and percentage.
-            $score = $submission ? $submission->score : 0;
-            $maxPoints = $activity->maxPoints ?: 1; // avoid division by zero
-    
-            $scorePercentage = ($submission && $activity->maxPoints > 0)
-                ? round(($score / $activity->maxPoints) * 100, 2)
+            $scorePercentage = ($maxPoints > 0)
+                ? round(($overallScore / $maxPoints) * 100, 2)
                 : null;
     
-            // Format timeSpent (assumed stored in seconds) into HH:MM:SS.
-            $formattedTimeSpent = ($submission && $submission->timeSpent !== null)
-                ? $this->formatSecondsToHMS($submission->timeSpent)
-                : '-';
+            // Optionally, sum overall time from the submissions.
+            $submissionSummary = ActivitySubmission::where('actID', $activity->actID)
+                ->where('studentID', $student->studentID)
+                ->select(DB::raw('SUM(timeSpent) as totalTime'))
+                ->first();
+            $overallTime = $submissionSummary ? $submissionSummary->totalTime : 0;
+            $formattedTime = $overallTime ? $this->formatSecondsToHMS($overallTime) : '-';
     
-            // Retrieve attemptsTaken from the pivot table activity_student.
+            // Retrieve attemptsTaken from the pivot.
             $attemptsTaken = DB::table('activity_student')
                 ->where('actID', $activity->actID)
                 ->where('studentID', $student->studentID)
@@ -141,17 +131,17 @@ class ActivityController extends Controller
                 'programmingLanguages'=> $activity->programmingLanguages->isNotEmpty()
                     ? $activity->programmingLanguages->pluck('progLangName')->toArray()
                     : 'N/A',
-                // Student-specific fields.
-                'rank'               => $rank,
-                'overallScore'       => $score,
+                // Overall student-specific fields.
+                'rank'               => $attemptData ? $attemptData->finalScore : null, // you could also send a rank if computed separately
+                'overallScore'       => $overallScore,
                 'maxPoints'          => $activity->maxPoints,
-                'finalScorePolicy' => $activity->finalScorePolicy,
+                'finalScorePolicy'   => $activity->finalScorePolicy,
                 'scorePercentage'    => $scorePercentage,
                 'attemptsTaken'      => $attemptsTaken ? $attemptsTaken : 0,
-                'studentTimeSpent'   => $formattedTimeSpent,
+                'studentTimeSpent'   => $formattedTime,
             ];
         });
-    }
+    }    
     
 
     /**
@@ -742,9 +732,10 @@ class ActivityController extends Controller
      */
     private function calculateAverageScore($itemID, $actID)
     {
-        return ActivitySubmission::where('actID', $actID)
+        $avg = ActivitySubmission::where('actID', $actID)
             ->where('itemID', $itemID)
-            ->avg('score') ?? '-';
+            ->avg('score');
+        return $avg !== null ? number_format(round($avg, 2), 2) : '-';
     }
 
     /**
@@ -769,25 +760,28 @@ class ActivityController extends Controller
             return response()->json(['message' => 'Activity not found'], 404);
         }
     
-        // Get submissions joined with students. Note we select timeSpent and student_num.
-        $submissions = ActivitySubmission::where('actID', $actID)
-            ->join('students', 'activity_submissions.studentID', '=', 'students.studentID')
+        // Read from the pivot table "activity_student" and join with the "students" table.
+        $submissions = \DB::table('activity_student as astu')
+            ->join('students as s', 'astu.studentID', '=', 's.studentID')
             ->select(
-                'students.studentID',
-                'students.firstname',
-                'students.lastname',
-                'students.student_num',
-                'students.program',
-                'activity_submissions.score',
-                'activity_submissions.timeSpent'
+                's.studentID',
+                's.firstname',
+                's.lastname',
+                's.program',
+                's.student_num',
+                's.profileImage',
+                'astu.finalScore',
+                'astu.finalTimeSpent'
             )
-            // Order by score descending, then timeSpent ascending, then by lastname and firstname alphabetically.
-            ->orderByDesc('activity_submissions.score')
-            ->orderBy('activity_submissions.timeSpent')
-            ->orderBy('students.lastname')
-            ->orderBy('students.firstname')
+            ->where('astu.actID', $actID)
+            // Sort by finalScore DESC, then finalTimeSpent ASC, then by lastname and firstname
+            ->orderByDesc('astu.finalScore')
+            ->orderBy('astu.finalTimeSpent')
+            ->orderBy('s.lastname')
+            ->orderBy('s.firstname')
             ->get();
     
+        // If no pivot records exist, return an empty leaderboard.
         if ($submissions->isEmpty()) {
             return response()->json([
                 'activityName' => $activity->actTitle,
@@ -796,15 +790,21 @@ class ActivityController extends Controller
             ]);
         }
     
-        // Create leaderboard with rank based on the sorted order.
+        // Build the leaderboard array.
         $rankedSubmissions = $submissions->map(function ($submission, $index) {
+            // Convert relative profile image path to full URL
+            $profileImage = $submission->profileImage 
+                ? asset('storage/' . $submission->profileImage) 
+                : null;
+    
             return [
                 'studentName'  => strtoupper($submission->lastname) . ", " . $submission->firstname,
-                'studentNum'   => $submission->student_num,  // included student number
+                'studentNum'   => $submission->student_num,
                 'program'      => $submission->program ?? 'N/A',
-                'averageScore' => $submission->score . '%',
-                'timeSpent'    => $submission->timeSpent,   // include timeSpent for transparency
-                'rank'         => ($index + 1)
+                'score'        => $submission->finalScore,
+                'timeSpent'    => $submission->finalTimeSpent,
+                'rank'         => ($index + 1),
+                'profileImage' => $profileImage
             ];
         });
     
@@ -813,6 +813,8 @@ class ActivityController extends Controller
             'leaderboard'  => $rankedSubmissions
         ]);
     }
+      
+    
 
     /**
      * Show the activity settings.

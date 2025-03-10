@@ -20,6 +20,7 @@ return new class extends Migration {
             $table->integer('timeRemaining')->nullable();
             $table->string('selected_language')->nullable();
             $table->integer('draftScore')->nullable();
+            $table->longText('itemTimes')->nullable();
 
             $table->timestamps();
 

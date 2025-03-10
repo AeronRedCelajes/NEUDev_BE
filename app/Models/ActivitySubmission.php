@@ -16,8 +16,9 @@ class ActivitySubmission extends Model
     protected $fillable = [
         'actID',
         'studentID',
-        'attemptNo',       // new field for tracking attempt number
-        'codeSubmission',  // will store JSON string for multiple files
+        'itemID',         // Added for per-item submission
+        'attemptNo',      // New field for tracking attempt number per item
+        'codeSubmission', // Will store JSON string for multiple files
         'score',
         'rank',
         'timeSpent',
@@ -45,11 +46,11 @@ class ActivitySubmission extends Model
         return $this->belongsTo(Student::class, 'studentID', 'studentID');
     }
 
-    // /**
-    //  * Get the item linked to this submission.
-    //  */
-    // public function item()
-    // {
-    //     return $this->belongsTo(Item::class, 'itemID', 'itemID');
-    // }
+    /**
+     * Get the item linked to this submission.
+     */
+    public function item()
+    {
+        return $this->belongsTo(Item::class, 'itemID', 'itemID');
+    }
 }
