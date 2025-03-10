@@ -51,6 +51,15 @@ class Classroom extends Model
     }
 
     /**
+     * Accessor for classCoverImage.
+     * This returns the full URL to the cover image by prepending the storage path.
+     */
+    public function getClassCoverImageAttribute($value)
+    {
+        return $value ? asset('storage/' . $value) : null;
+    }
+
+    /**
      * Get the teacher who created the class.
      */
     public function teacher()

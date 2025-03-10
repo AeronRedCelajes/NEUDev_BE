@@ -13,7 +13,7 @@ class ClassroomController extends Controller
     /**
      * Get all classes
      */
-    public function index()
+    public function index(Request $request)
     {
         $teacher = Auth::user();
     
@@ -21,8 +21,18 @@ class ClassroomController extends Controller
             return response()->json(['message' => 'Unauthorized'], 403);
         }
     
-        // Fetch only classes created by this teacher
-        $classes = Classroom::where('teacherID', $teacher->teacherID)->with('students')->get();
+        // Check if a query parameter for archived classes is provided.
+        $archived = $request->query('archived', false);
+    
+        $query = Classroom::where('teacherID', $teacher->teacherID);
+        
+        if ($archived) {
+            $query->where('activeClass', false);
+        } else {
+            $query->where('activeClass', true);
+        }
+    
+        $classes = $query->with('students')->get();
     
         return response()->json($classes);
     }
