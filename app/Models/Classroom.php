@@ -16,13 +16,19 @@ class Classroom extends Model
 
     // Disable auto-incrementing since we're using a custom key
     public $incrementing = false;
-    // Set the key type as integer (or string if you prefer)
+    // Set the key type as integer
     protected $keyType = 'integer';
 
     protected $fillable = [
         'className',
         'classSection',
         'teacherID',
+        'classCoverImage', // New field: can be nullable
+        'activeClass',     // New field: defaults to true
+    ];
+
+    protected $casts = [
+        'activeClass' => 'boolean',
     ];
 
     /**

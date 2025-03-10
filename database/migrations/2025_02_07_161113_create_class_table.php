@@ -18,6 +18,11 @@ return new class extends Migration
             $table->string('className');
             $table->string('classSection');
             $table->unsignedBigInteger('teacherID');
+
+            // New fields
+            $table->string('classCoverImage')->nullable();  // Nullable image field
+            $table->boolean('activeClass')->default(true);    // Boolean, default true
+
             $table->timestamps();
 
             // Foreign key constraint: teacherID references teachers table
