@@ -18,6 +18,7 @@ return new class extends Migration
             $table->string('lastname');
             $table->string('email')->unique();
             $table->string('password');
+            $table->string('lastToken')->nullable();
             $table->string('profileImage')->nullable();
             $table->string('coverImage')->nullable();
         });

@@ -26,6 +26,7 @@ class Activity extends Model
         'maxPoints',
         'classAvgScore',
         'highestScore',
+        'finalScorePolicy',
         'examMode',
         'randomizedItems',
         'disableReviewing',

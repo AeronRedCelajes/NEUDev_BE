@@ -17,13 +17,17 @@ class ActivityProgress extends Model
         'actID',
         'progressable_id',
         'progressable_type',
-        'itemID',
+        // Removed 'itemID' as progress is stored on an activity level.
         'draftFiles',
         'draftTestCaseResults',
         'timeRemaining',
+        'selected_language',
+        'draftScore',
+        'itemTimes'
     ];
 
     protected $casts = [
+        'draftScore' => 'integer',
         'draftFiles' => 'array',
         'draftTestCaseResults' => 'array',
     ];
@@ -44,11 +48,11 @@ class ActivityProgress extends Model
         return $this->belongsTo(Activity::class, 'actID', 'actID');
     }
 
-    /**
-     * Get the item (question) associated with this progress.
-     */
+    // Remove this relationship if you're not tracking per-item progress.
+    /*
     public function item()
     {
         return $this->belongsTo(Item::class, 'itemID', 'itemID');
     }
+    */
 }

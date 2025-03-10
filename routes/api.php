@@ -41,7 +41,7 @@ Route::controller(AuthController::class)->group(function () {
 });
 
 // Protected Routes (Requires Authentication via Sanctum)
-Route::middleware('auth:sanctum')->group(function () {
+Route::middleware(['auth:sanctum', 'single.session'])->group(function () {
     Route::post('/logout', [AuthController::class, 'logout']);
     Route::get('/user', function (Request $request) {
         $user = $request->user();
@@ -51,6 +51,8 @@ Route::middleware('auth:sanctum')->group(function () {
                 ($user instanceof \App\Models\Teacher ? 'teacher' : 'unknown'),
         ]);
     });
+
+    Route::post('/verify-password', [AuthController::class, 'verifyPassword']);
 
     // -------------------------------
     // Student Routes
@@ -79,9 +81,11 @@ Route::middleware('auth:sanctum')->group(function () {
         // Endpoint to finalize (submit) an activity submission.
         Route::post('/activities/{actID}/submission', [ActivitySubmissionController::class, 'finalizeSubmission']);
 
-        // NEW: Endpoints for saving and retrieving activity progress.
+
+        // ASSESSMENT PAGE: Endpoints for saving and retrieving activity progress.
         Route::get('/activities/{actID}/progress', [ActivityProgressController::class, 'getProgress']);
         Route::post('/activities/{actID}/progress', [ActivityProgressController::class, 'saveProgress']);
+        Route::delete('/activities/{actID}/progress', [ActivityProgressController::class, 'clearProgress']);
     });
 
     // -------------------------------
@@ -138,9 +142,14 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::get('/activities/{actID}/settings', [ActivityController::class, 'showActivitySettingsByTeacher']);
         Route::put('/activities/{actID}/settings', [ActivityController::class, 'updateActivitySettingsByTeacher']);
 
-        // Under teacher prefix (for testing purposes):
+        // ASSESSMENT PAGE: Under teacher prefix (for testing purposes):
         Route::get('/activities/{actID}/progress', [ActivityProgressController::class, 'getProgress']);
         Route::post('/activities/{actID}/progress', [ActivityProgressController::class, 'saveProgress']);
+        Route::delete('/activities/{actID}/progress', [ActivityProgressController::class, 'clearProgress']);
+
+        // ACTIVITY SUBMISSION
+        Route::get('/activities/{actID}/submissions', [ActivitySubmissionController::class, 'index']);
+        Route::get('/activities/{actID}/review', [ActivitySubmissionController::class, 'reviewSubmissions']);
 
         // 📌 Bulletin Board Routes (Newly Added)
         Route::get('/class/{classID}/bulletin', [BulletinController::class, 'index']); // Get posts by class
