@@ -149,9 +149,9 @@ class ConcernController extends Controller
             if ($user->studentID != $concern->studentID) {
                 return response()->json(['message' => 'Unauthorized: This is not your concern'], 403);
             }
-            if ($concern->reply !== null) {
-                return response()->json(['message' => 'Cannot delete concern after a reply has been made'], 403);
-            }
+            // if ($concern->reply !== null) {
+            //     return response()->json(['message' => 'Cannot delete concern after a reply has been made'], 403);
+            // }
         } elseif ($user instanceof \App\Models\Teacher) {
             if ($user->teacherID != $concern->teacherID) {
                 return response()->json(['message' => 'Unauthorized: You are not assigned to this concern'], 403);
