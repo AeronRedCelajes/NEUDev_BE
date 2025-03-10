@@ -16,9 +16,9 @@ class ActivitySubmission extends Model
     protected $fillable = [
         'actID',
         'studentID',
-        'itemID',
-        'attemptNo',       // new field for tracking attempt number
-        'codeSubmission',  // will store JSON string for multiple files
+        'itemID',         // Added for per-item submission
+        'attemptNo',      // New field for tracking attempt number per item
+        'codeSubmission', // Will store JSON string for multiple files
         'score',
         'rank',
         'timeSpent',

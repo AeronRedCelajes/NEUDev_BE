@@ -25,12 +25,14 @@ return new class extends Migration {
             $table->dateTime('closeDate');
             $table->integer('maxPoints')->default(100);
             $table->float('classAvgScore')->nullable();
-            $table->float('highestScore')->nullable();
+            $table->enum('finalScorePolicy', ['last_attempt', 'highest_score'])
+            ->default('last_attempt');
             $table->boolean('examMode')->default(false);
             $table->boolean('randomizedItems')->default(false);
             $table->boolean('disableReviewing')->default(false);
             $table->boolean('hideLeaderboard')->default(false);
             $table->boolean('delayGrading')->default(false);
+
             $table->timestamp('completed_at')->nullable();
 
             // Foreign Key Constraints

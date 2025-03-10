@@ -5,13 +5,20 @@ namespace App\Http\Controllers\Api;
 use App\Http\Controllers\Controller;
 use Illuminate\Http\Request;
 use App\Models\ActivitySubmission;
+use App\Models\Activity; // To fetch activity details
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
+use App\Models\ActivityProgress;
 
 class ActivitySubmissionController extends Controller
 {
     /**
-     * Finalize an activity submission for a student.
+     * Finalize an activity submission for a student on a per-item basis.
+     * Expects an array "submissions" where each element includes:
+     * - itemID
+     * - codeSubmission (optional)
+     * - score (optional)
+     * - timeSpent (optional)
      */
     public function finalizeSubmission(Request $request, $actID)
     {
@@ -19,38 +26,22 @@ class ActivitySubmissionController extends Controller
         if (!$student || !$student instanceof \App\Models\Student) {
             return response()->json(['message' => 'Unauthorized'], 403);
         }
-
-        // Validate incoming data.
-        // Note: codeSubmission will be a JSON string containing an array of file objects.
+    
+        // 1) Validate the incoming data
         $validatedData = $request->validate([
-            'itemID'         => 'required|exists:items,itemID',
-            'codeSubmission' => 'nullable|string', // JSON encoded multi-file submission
-            'score'          => 'nullable|integer',
-            'timeSpent'      => 'nullable|integer',  // timeSpent is in seconds (or minutes) for calculations
+            'submissions' => 'required|array|min:1',
+            'submissions.*.itemID'         => 'required|exists:items,itemID',
+            'submissions.*.codeSubmission' => 'nullable|string',
+            'submissions.*.score'          => 'nullable|integer',
+            'submissions.*.timeSpent'      => 'nullable|integer',
         ]);
-
-        // Create or update the submission record for this item.
-        // You could also consider keeping a history of attempts.
-        $submission = ActivitySubmission::updateOrCreate(
-            [
-                'actID'     => $actID,
-                'studentID' => $student->studentID,
-                'itemID'    => $validatedData['itemID'],
-            ],
-            [
-                'codeSubmission' => $validatedData['codeSubmission'] ?? null,
-                'score'          => $validatedData['score'] ?? 0,
-                'timeSpent'      => $validatedData['timeSpent'] ?? 0,
-                'submitted_at'   => now(),
-            ]
-        );
-
-        // Update the overall attempt count in the pivot table "activity_student".
+    
+        // 2) Insert/update pivot record to track attemptNo
         $pivot = DB::table('activity_student')
             ->where('actID', $actID)
             ->where('studentID', $student->studentID)
             ->first();
-
+    
         if (!$pivot) {
             DB::table('activity_student')->insert([
                 'actID'         => $actID,
@@ -70,50 +61,259 @@ class ActivitySubmissionController extends Controller
                     'updated_at'    => now(),
                 ]);
         }
-
-        // Return the submission response.
+    
+        // 3) Create per-item submissions for the current attempt
+        $createdSubmissions = [];
+        foreach ($validatedData['submissions'] as $subData) {
+            $submission = ActivitySubmission::create([
+                'actID'         => $actID,
+                'studentID'     => $student->studentID,
+                'itemID'        => $subData['itemID'],
+                'attemptNo'     => $attemptsTaken,
+                'codeSubmission'=> $subData['codeSubmission'] ?? null,
+                'score'         => $subData['score'] ?? 0, // partial, per-item score
+                'timeSpent'     => $subData['timeSpent'] ?? 0,
+                'submitted_at'  => now(),
+            ]);
+            $createdSubmissions[] = $submission;
+        }
+    
+        // 4) If finalScorePolicy is 'highest_score', for each item, keep the best item-level score
+        $activity = Activity::find($actID);
+        if ($activity && $activity->finalScorePolicy === 'highest_score') {
+            foreach ($createdSubmissions as $submission) {
+                $highestSubmission = ActivitySubmission::where('actID', $actID)
+                    ->where('studentID', $student->studentID)
+                    ->where('itemID', $submission->itemID)
+                    ->orderByDesc('score')
+                    ->first();
+                if ($highestSubmission && $highestSubmission->score > $submission->score) {
+                    $submission->score = $highestSubmission->score;
+                    $submission->save();
+                }
+            }
+        }
+    
+        // 5) Summarize all attempts for this activity & student
+        $summaries = ActivitySubmission::select(
+                'studentID',
+                'attemptNo',
+                DB::raw('SUM(score) as totalScore'),
+                DB::raw('SUM(timeSpent) as totalTimeSpent')
+            )
+            ->where('actID', $actID)
+            ->where('studentID', $student->studentID)
+            ->groupBy('studentID', 'attemptNo')
+            ->get();
+    
+        // Sort attempts by score desc, then time asc
+        $sorted = $summaries->sort(function ($a, $b) {
+            if ($a->totalScore == $b->totalScore) {
+                return $a->totalTimeSpent <=> $b->totalTimeSpent;
+            }
+            return $b->totalScore <=> $a->totalScore;
+        })->values();
+    
+        // Compute rank for THIS attempt
+        $rank = 1;
+        foreach ($sorted as $summary) {
+            if ($summary->attemptNo == $attemptsTaken) {
+                break;
+            }
+            $rank++;
+        }
+    
+        // Update rank on newly created submissions for the current attempt
+        ActivitySubmission::where('actID', $actID)
+            ->where('studentID', $student->studentID)
+            ->where('attemptNo', $attemptsTaken)
+            ->update(['rank' => $rank]);
+    
+        // 6) Determine finalScore and finalTimeSpent based on the policy
+        $finalScore = 0;
+        $finalTimeSpent = 0;
+    
+        if ($activity && $activity->finalScorePolicy === 'highest_score') {
+            // Use the best overall attempt
+            $bestAttempt = $sorted->first(); // top in sorted list
+            if ($bestAttempt) {
+                $finalScore = $bestAttempt->totalScore;
+                $finalTimeSpent = $bestAttempt->totalTimeSpent;
+            }
+        } else {
+            // "last_attempt" or default
+            $currentAttemptSummary = $summaries->first(function ($sum) use ($attemptsTaken) {
+                return $sum->attemptNo == $attemptsTaken;
+            });
+            if ($currentAttemptSummary) {
+                $finalScore = $currentAttemptSummary->totalScore;
+                $finalTimeSpent = $currentAttemptSummary->totalTimeSpent;
+            }
+        }
+    
+        // Store finalScore and finalTimeSpent in pivot
+        DB::table('activity_student')
+            ->where('actID', $actID)
+            ->where('studentID', $student->studentID)
+            ->update([
+                'finalScore'     => $finalScore,
+                'finalTimeSpent' => $finalTimeSpent
+            ]);
+    
+        // 7) Clear progress
+        ActivityProgress::where('actID', $actID)
+            ->where('progressable_id', $student->studentID)
+            ->where('progressable_type', get_class($student))
+            ->delete();
+    
         return response()->json([
-            'message'       => 'Submission finalized successfully.',
-            'submission'    => $submission,
+            'message'       => 'Submissions finalized successfully (per item).',
+            'submissions'   => $createdSubmissions,
             'attemptsTaken' => $attemptsTaken,
+            'rank'          => $rank,
+            'finalScore'    => $finalScore,
+            'finalTimeSpent'=> $finalTimeSpent
         ], 200);
+    }    
+        
+
+    /**
+     * Retrieve all submissions for a given activity.
+     * This endpoint can be used by teachers for review.
+     */
+    public function index($actID)
+    {
+        $user = Auth::user();
+        $submissions = ActivitySubmission::where('actID', $actID)->get();
+        return response()->json($submissions);
     }
 
-    // OPTIONAL: Add a method to save progress (draft submission)
-    // This endpoint would be called frequently (or on page unload) to update progress in the activity_progress table.
-    public function saveProgress(Request $request, $actID)
+    /**
+     * Update an existing activity submission.
+     */
+    public function updateSubmission(Request $request, $actID, $submissionID)
     {
         $student = Auth::user();
         if (!$student || !$student instanceof \App\Models\Student) {
             return response()->json(['message' => 'Unauthorized'], 403);
         }
 
-        // Validate draft data; here we expect a JSON array in draftFiles.
         $validatedData = $request->validate([
-            'itemID'              => 'nullable|exists:items,itemID',  // if per-item progress
-            'draftFiles'          => 'nullable|string', // JSON encoded array of file objects
-            'draftTestCaseResults'=> 'nullable|json',
-            'timeRemaining'       => 'nullable|integer', // seconds remaining
+            'codeSubmission' => 'nullable|string',
+            'score'          => 'nullable|integer',
+            'timeSpent'      => 'nullable|integer',
         ]);
 
-        // Here, you would use the new ActivityProgress model to update or create progress.
-        // For example:
-        $progress = \App\Models\ActivityProgress::updateOrCreate(
+        $submission = ActivitySubmission::find($submissionID);
+        if (!$submission || $submission->studentID !== $student->studentID) {
+            return response()->json(['message' => 'Submission not found or unauthorized'], 404);
+        }
+
+        $submission->update($validatedData);
+
+        return response()->json([
+            'message'    => 'Submission updated successfully.',
+            'submission' => $submission,
+        ], 200);
+    }
+
+    /**
+     * Delete an existing activity submission.
+     */
+    public function deleteSubmission($actID, $submissionID)
+    {
+        $student = Auth::user();
+        if (!$student || !$student instanceof \App\Models\Student) {
+            return response()->json(['message' => 'Unauthorized'], 403);
+        }
+
+        $submission = ActivitySubmission::find($submissionID);
+        if (!$submission || $submission->studentID !== $student->studentID) {
+            return response()->json(['message' => 'Submission not found or unauthorized'], 404);
+        }
+
+        $submission->delete();
+
+        return response()->json(['message' => 'Submission deleted successfully.'], 200);
+    }
+
+    /**
+     * Save progress (draft submission) for an activity.
+     */
+    public function saveProgress(Request $request, $actID)
+    {
+        \Log::info("saveProgress called for activity $actID by user: " . (Auth::id() ?? 'guest'));
+
+        \Log::info("Incoming request data: " . json_encode($request->all()));
+
+        $validatedData = $request->validate([
+            'draftFiles'           => 'nullable|string',
+            'draftTestCaseResults' => 'nullable|json',
+            'timeRemaining'        => 'nullable|integer',
+            'selectedLanguage'     => 'nullable|string',
+            'draftScore'           => 'required|integer',
+        ]);
+
+        \Log::info("Validated data: " . json_encode($validatedData));
+
+        $user = Auth::user();
+        if (!$user) {
+            \Log::warning("No authenticated user found! Exiting saveProgress...");
+            return response()->json(['message' => 'Unauthorized'], 403);
+        }
+        $progressableId = $user->studentID ?? $user->teacherID ?? null;
+
+        if (is_null($progressableId)) {
+            \Log::error("No progressable ID found for user " . Auth::id());
+            return response()->json(['message' => 'User identifier not found.'], 500);
+        }
+
+        $progress = ActivityProgress::updateOrCreate(
             [
-                'actID'     => $actID,
-                'studentID' => $student->studentID,
-                'itemID'    => $validatedData['itemID'] ?? null,
+                'actID'             => $actID,
+                'progressable_id'   => $progressableId,
+                'progressable_type' => get_class($user),
             ],
             [
                 'draftFiles'           => $validatedData['draftFiles'] ?? null,
                 'draftTestCaseResults' => $validatedData['draftTestCaseResults'] ?? null,
                 'timeRemaining'        => $validatedData['timeRemaining'] ?? null,
+                'selected_language'    => $validatedData['selectedLanguage'] ?? null,
+                'draftScore'           => $validatedData['draftScore'],
             ]
         );
+
+        \Log::info("Saved/updated progress record: " . $progress->toJson());
 
         return response()->json([
             'message'  => 'Progress saved successfully.',
             'progress' => $progress,
-        ]);
+        ], 200);
+    }
+
+    /**
+     * Retrieve and review submissions for a given activity.
+     */
+    public function reviewSubmissions($actID)
+    {
+        $submissions = ActivitySubmission::where('actID', $actID)->with('student')->get();
+
+        $results = $submissions->map(function ($submission) {
+            $student = $submission->student;
+            return [
+                'submissionID' => $submission->submissionID,
+                'studentName'  => $student ? $student->firstname . ' ' . $student->lastname : null,
+                'studentNo'    => $student ? $student->student_num : null,
+                'program'      => $student ? $student->program : null,
+                'score'        => $submission->score,
+                'timeSpent'    => $submission->timeSpent,
+                'submitted_at' => $submission->submitted_at,
+                'attemptNo'    => $submission->attemptNo,
+                'codeSubmission' => json_decode($submission->codeSubmission, true),
+                'rank'         => $submission->rank,
+            ];
+        });
+
+        return response()->json($results);
     }
 }
