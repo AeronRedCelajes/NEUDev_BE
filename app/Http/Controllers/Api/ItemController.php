@@ -153,17 +153,17 @@ class ItemController extends Controller
     public function update(Request $request, $itemID)
     {
         $item = Item::find($itemID);
-
+    
         if (!$item) {
             return response()->json(['message' => 'Item not found'], 404);
         }
-
+    
         // Retrieve the item type.
         $itemType = DB::table('item_types')->where('itemTypeID', $request->itemTypeID)->first();
         if (!$itemType) {
             return response()->json(['message' => 'Invalid item type.'], 400);
         }
-
+    
         // Define base rules.
         $rules = [
             'itemTypeID'         => 'required|exists:item_types,itemTypeID',
@@ -174,7 +174,7 @@ class ItemController extends Controller
             'itemDifficulty'     => 'required|in:Beginner,Intermediate,Advanced',
             'itemPoints'         => 'required|integer|min:1',
         ];
-
+    
         // Enforce test case rules only for Console App.
         if ($itemType->itemTypeName === 'Console App') {
             $rules['testCases'] = 'required|array';
@@ -186,11 +186,11 @@ class ItemController extends Controller
             $rules['testCases'] = 'nullable|array';
             $rules['testCases.*.isHidden'] = 'sometimes|boolean';
         }
-
+    
         $validatedData = $request->validate($rules);
-
+    
         DB::beginTransaction();
-
+    
         try {
             // Update item details.
             $item->update([
@@ -200,10 +200,10 @@ class ItemController extends Controller
                 'itemDifficulty' => $validatedData['itemDifficulty'],
                 'itemPoints'     => $validatedData['itemPoints'],
             ]);
-
+    
             // Sync programming languages.
             $item->programmingLanguages()->sync($validatedData['progLangIDs']);
-
+    
             // Update test cases: delete existing and add new ones if provided.
             if ($request->has('testCases')) {
                 TestCase::where('itemID', $itemID)->delete();
@@ -219,22 +219,41 @@ class ItemController extends Controller
                     }
                 }
             }
-
-            DB::commit();
-
-            // After DB::commit() in your update method:
-            $activityItem = \App\Models\ActivityItem::where('itemID', $item->itemID)->first();
-            if ($activityItem) {
-                $activity = \App\Models\Activity::with(['items.item.testCases'])->find($activityItem->actID);
+    
+            // -----------------------------------------------------------
+            // 1) Now recalc the sum of all testCasePoints for this item
+            // -----------------------------------------------------------
+            $sumOfTestCases = TestCase::where('itemID', $item->itemID)->sum('testCasePoints');
+    
+            // -----------------------------------------------------------
+            // 2) Update the itemPoints to match that sum
+            // -----------------------------------------------------------
+            $item->update(['itemPoints' => $sumOfTestCases]);
+    
+            // -----------------------------------------------------------
+            // 3) Update the pivot table "activity_items" with the new points
+            // -----------------------------------------------------------
+            $activityItems = ActivityItem::where('itemID', $item->itemID)->get();
+            foreach ($activityItems as $activityItem) {
+                $activityItem->update(['actItemPoints' => $sumOfTestCases]);
+            }
+    
+            // -----------------------------------------------------------
+            // 4) Update the Activity's maxPoints if this item belongs to an activity
+            // -----------------------------------------------------------
+            if ($activityItems->isNotEmpty()) {
+                $activityID = $activityItems->first()->actID;
+                $activity = \App\Models\Activity::with('items')->find($activityID);
+    
                 if ($activity) {
-                    $totalPoints = $activity->items->sum(function($ai) {
-                        // Sum up the points based on the updated test case points.
-                        return $ai->item->testCases->sum('testCasePoints');
-                    });
-                    $activity->update(['maxPoints' => $totalPoints]);
+                    // Re-sum all actItemPoints for the items in this activity
+                    $newTotal = $activity->items->sum('actItemPoints');
+                    $activity->update(['maxPoints' => $newTotal]);
                 }
             }
-
+    
+            DB::commit();
+    
             return response()->json([
                 'message'    => 'Item updated successfully',
                 'data'       => $item->load(['testCases', 'programmingLanguages']),
@@ -249,6 +268,7 @@ class ItemController extends Controller
             ], 500);
         }
     }
+      
 
     /**
      * Delete an item (and its test cases).

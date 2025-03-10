@@ -89,7 +89,7 @@ class ActivityController extends Controller
     private function attachStudentDetails($activities, $student)
     {
         return $activities->map(function ($activity) use ($student) {
-            // Retrieve overall attempt data from pivot table.
+            // Retrieve overall attempt data for this student from the pivot table.
             $attemptData = DB::table('activity_student')
                 ->where('actID', $activity->actID)
                 ->where('studentID', $student->studentID)
@@ -103,7 +103,7 @@ class ActivityController extends Controller
                 ? round(($overallScore / $maxPoints) * 100, 2)
                 : null;
     
-            // Optionally, sum overall time from the submissions.
+            // Sum overall time from the submissions.
             $submissionSummary = ActivitySubmission::where('actID', $activity->actID)
                 ->where('studentID', $student->studentID)
                 ->select(DB::raw('SUM(timeSpent) as totalTime'))
@@ -116,6 +116,22 @@ class ActivityController extends Controller
                 ->where('actID', $activity->actID)
                 ->where('studentID', $student->studentID)
                 ->value('attemptsTaken');
+    
+            // Calculate rank by comparing the student's finalScore and finalTimeSpent with all attempts.
+            $rank = null;
+            if ($attemptData) {
+                $allAttempts = DB::table('activity_student')
+                    ->where('actID', $activity->actID)
+                    ->orderByDesc('finalScore')
+                    ->orderBy('finalTimeSpent')
+                    ->get();
+                foreach ($allAttempts as $index => $record) {
+                    if ($record->studentID == $student->studentID) {
+                        $rank = $index + 1;
+                        break;
+                    }
+                }
+            }
     
             return [
                 'actID'               => $activity->actID,
@@ -132,7 +148,7 @@ class ActivityController extends Controller
                     ? $activity->programmingLanguages->pluck('progLangName')->toArray()
                     : 'N/A',
                 // Overall student-specific fields.
-                'rank'               => $attemptData ? $attemptData->finalScore : null, // you could also send a rank if computed separately
+                'rank'               => $rank,
                 'overallScore'       => $overallScore,
                 'maxPoints'          => $activity->maxPoints,
                 'finalScorePolicy'   => $activity->finalScorePolicy,
@@ -141,7 +157,7 @@ class ActivityController extends Controller
                 'studentTimeSpent'   => $formattedTime,
             ];
         });
-    }    
+    }
     
 
     /**
@@ -665,9 +681,9 @@ class ActivityController extends Controller
     ///////////////////////////////////////////////////
     // FUNCTIONS FOR ACTIVITY MANAGEMENT PAGE FOR TEACHERS
     ///////////////////////////////////////////////////
-
     public function showActivityItemsByTeacher($actID)
     {
+        // Load the activity along with its relationships.
         $activity = Activity::with([
             'items.item.testCases', 
             'items.item.programmingLanguages',
@@ -675,29 +691,36 @@ class ActivityController extends Controller
             'classroom',
             'programmingLanguages',
         ])->find($actID);
-
+    
         if (!$activity) {
             return response()->json(['message' => 'Activity not found'], 404);
         }
-
+        
+        // Force a refresh so that we get the latest pivot data and item details.
+        $activity->refresh();
+    
         $items = $activity->items->map(function ($ai) use ($activity) {
+            // Optionally refresh the pivot record individually.
+            $ai->refresh();
+            
             $item = $ai->item;
-
+    
+            // Map programming languages for each item.
             $programmingLanguages = $item->programmingLanguages->map(function ($lang) {
                 return [
                     'progLangID'   => $lang->progLangID,
                     'progLangName' => $lang->progLangName,
                 ];
             })->values()->all();
-
+    
             return [
-                'itemID'         => $item->itemID,
-                'itemName'       => $item->itemName ?? 'Unknown',
-                'itemDesc'       => $item->itemDesc ?? '',
-                'itemDifficulty' => $item->itemDifficulty ?? 'N/A',
+                'itemID'                => $item->itemID,
+                'itemName'              => $item->itemName ?? 'Unknown',
+                'itemDesc'              => $item->itemDesc ?? '',
+                'itemDifficulty'        => $item->itemDifficulty ?? 'N/A',
                 'programming_languages' => $programmingLanguages,
-                'itemType'       => $ai->itemType->itemTypeName ?? 'N/A',
-                'testCases'      => $item->testCases->map(function ($tc) {
+                'itemType'              => $ai->itemType->itemTypeName ?? 'N/A',
+                'testCases'             => $item->testCases->map(function ($tc) {
                     return [
                         'inputData'      => $tc->inputData,
                         'expectedOutput' => $tc->expectedOutput,
@@ -705,17 +728,18 @@ class ActivityController extends Controller
                         'isHidden'       => $tc->isHidden,
                     ];
                 }),
-                'avgStudentScore'     => $this->calculateAverageScore($item->itemID, $activity->actID),
-                'avgStudentTimeSpent' => $this->calculateAverageTimeSpent($item->itemID, $activity->actID),
-                'actItemPoints'       => $ai->actItemPoints,
+                'avgStudentScore'       => $this->calculateAverageScore($item->itemID, $activity->actID),
+                'avgStudentTimeSpent'   => $this->calculateAverageTimeSpent($item->itemID, $activity->actID),
+                // This pivot field should now reflect the updated value.
+                'actItemPoints'         => $ai->actItemPoints,
             ];
         });
-
+    
         return response()->json([
-            'activityName' => $activity->actTitle,
-            'actDesc'      => $activity->actDesc,
-            'maxPoints'    => $activity->maxPoints,
-            'actDuration'  => $activity->actDuration,
+            'activityName'     => $activity->actTitle,
+            'actDesc'          => $activity->actDesc,
+            'maxPoints'        => $activity->maxPoints,
+            'actDuration'      => $activity->actDuration,
             'allowedLanguages' => $activity->programmingLanguages->map(function ($lang) {
                 return [
                     'progLangID'        => $lang->progLangID,
@@ -723,10 +747,11 @@ class ActivityController extends Controller
                     'progLangExtension' => $lang->progLangExtension,
                 ];
             })->values(),
-            'items'        => $items
+            'items'            => $items,
         ]);
     }
-
+    
+    
     /**
      * Calculate the average student score for an activity item.
      */
