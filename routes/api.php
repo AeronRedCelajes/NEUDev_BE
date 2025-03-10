@@ -18,7 +18,7 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Route;
 use Illuminate\Support\Facades\Log;
 
-// Fallback route for undefined API calls
+// Fallback route for undefined API call
 Route::fallback(function () {
     Log::warning('Invalid API Request:', [
         'url' => request()->url(),
