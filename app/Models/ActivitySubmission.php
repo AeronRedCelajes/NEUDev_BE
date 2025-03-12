@@ -20,8 +20,7 @@ class ActivitySubmission extends Model
         'attemptNo',      // New field for tracking attempt number per item
         'codeSubmission', // Will store JSON string for multiple files
         'score',
-        'rank',
-        'timeSpent',
+        'itemTimeSpent',
         'submitted_at',
     ];
 

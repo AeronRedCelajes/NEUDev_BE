@@ -5,7 +5,7 @@ namespace App\Http\Controllers\Api;
 use App\Http\Controllers\Controller;
 use Illuminate\Http\Request;
 use App\Models\ActivitySubmission;
-use App\Models\Activity; // To fetch activity details
+use App\Models\Activity;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
 use App\Models\ActivityProgress;
@@ -18,7 +18,7 @@ class ActivitySubmissionController extends Controller
      * - itemID
      * - codeSubmission (optional)
      * - score (optional)
-     * - timeSpent (optional)
+     * - itemTimeSpent (optional)  <-- renamed field
      */
     public function finalizeSubmission(Request $request, $actID)
     {
@@ -27,16 +27,16 @@ class ActivitySubmissionController extends Controller
             return response()->json(['message' => 'Unauthorized'], 403);
         }
     
-        // 1) Validate the incoming data
+        // 1) Validate incoming data
         $validatedData = $request->validate([
             'submissions' => 'required|array|min:1',
             'submissions.*.itemID'         => 'required|exists:items,itemID',
-            'submissions.*.codeSubmission' => 'nullable|string',
-            'submissions.*.score'          => 'nullable|integer',
-            'submissions.*.timeSpent'      => 'nullable|integer',
+            'submissions.*.codeSubmission'   => 'nullable|string',
+            'submissions.*.score'            => 'nullable|integer',
+            'submissions.*.itemTimeSpent'    => 'nullable|integer',
         ]);
     
-        // 2) Insert/update pivot record to track attemptNo
+        // 2) Insert or update the pivot record for attempts tracking
         $pivot = DB::table('activity_student')
             ->where('actID', $actID)
             ->where('studentID', $student->studentID)
@@ -66,101 +66,85 @@ class ActivitySubmissionController extends Controller
         $createdSubmissions = [];
         foreach ($validatedData['submissions'] as $subData) {
             $submission = ActivitySubmission::create([
-                'actID'         => $actID,
-                'studentID'     => $student->studentID,
-                'itemID'        => $subData['itemID'],
-                'attemptNo'     => $attemptsTaken,
-                'codeSubmission'=> $subData['codeSubmission'] ?? null,
-                'score'         => $subData['score'] ?? 0, // partial, per-item score
-                'timeSpent'     => $subData['timeSpent'] ?? 0,
-                'submitted_at'  => now(),
+                'actID'          => $actID,
+                'studentID'      => $student->studentID,
+                'itemID'         => $subData['itemID'],
+                'attemptNo'      => $attemptsTaken,
+                'codeSubmission' => $subData['codeSubmission'] ?? null,
+                'score'          => $subData['score'] ?? 0,
+                'itemTimeSpent'  => $subData['itemTimeSpent'] ?? 0,
+                'submitted_at'   => now(),
             ]);
             $createdSubmissions[] = $submission;
         }
     
-        // 4) If finalScorePolicy is 'highest_score', for each item, keep the best item-level score
-        $activity = Activity::find($actID);
-        if ($activity && $activity->finalScorePolicy === 'highest_score') {
-            foreach ($createdSubmissions as $submission) {
-                $highestSubmission = ActivitySubmission::where('actID', $actID)
-                    ->where('studentID', $student->studentID)
-                    ->where('itemID', $submission->itemID)
-                    ->orderByDesc('score')
-                    ->first();
-                if ($highestSubmission && $highestSubmission->score > $submission->score) {
-                    $submission->score = $highestSubmission->score;
-                    $submission->save();
-                }
-            }
-        }
+        // 4) Do NOT update each submission's score to reflect the best attempt,
+        // so that each submission remains as submitted.
+        // (This block has been removed.)
     
-        // 5) Summarize all attempts for this activity & student
+        // 5) Summarize all attempts for this student in this activity.
         $summaries = ActivitySubmission::select(
                 'studentID',
                 'attemptNo',
                 DB::raw('SUM(score) as totalScore'),
-                DB::raw('SUM(timeSpent) as totalTimeSpent')
+                DB::raw('SUM(itemTimeSpent) as totalTimeSpent')
             )
             ->where('actID', $actID)
             ->where('studentID', $student->studentID)
             ->groupBy('studentID', 'attemptNo')
             ->get();
     
-        // Sort attempts by score desc, then time asc
-        $sorted = $summaries->sort(function ($a, $b) {
-            if ($a->totalScore == $b->totalScore) {
-                return $a->totalTimeSpent <=> $b->totalTimeSpent;
-            }
-            return $b->totalScore <=> $a->totalScore;
-        })->values();
+        $activity = Activity::find($actID);
+        if ($activity->finalScorePolicy === 'highest_score') {
+            $sorted = $summaries->sort(function ($a, $b) {
+                if ($a->totalScore == $b->totalScore) {
+                    return $a->totalTimeSpent <=> $b->totalTimeSpent;
+                }
+                return $b->totalScore <=> $a->totalScore;
+            })->values();
+            $finalSummary = $sorted->first();
+        } else {
+            // For last_attempt: choose the summary with the highest attemptNo.
+            $finalSummary = $summaries->first(function ($sum) use ($summaries) {
+                return $sum->attemptNo == $summaries->max('attemptNo');
+            });
+        }
     
-        // Compute rank for THIS attempt
+        // Compute rank for THIS student's result by comparing with all students’ pivot records.
+        $allPivots = DB::table('activity_student')
+            ->where('actID', $actID)
+            ->orderByDesc('finalScore')
+            ->orderBy('finalTimeSpent')
+            ->get();
         $rank = 1;
-        foreach ($sorted as $summary) {
-            if ($summary->attemptNo == $attemptsTaken) {
+        foreach ($allPivots as $record) {
+            if ($record->studentID == $student->studentID) {
                 break;
             }
             $rank++;
         }
     
-        // Update rank on newly created submissions for the current attempt
-        ActivitySubmission::where('actID', $actID)
-            ->where('studentID', $student->studentID)
-            ->where('attemptNo', $attemptsTaken)
-            ->update(['rank' => $rank]);
+        // 6) Determine finalScore and finalTimeSpent based on the chosen attempt summary.
+        $finalScore = $finalSummary ? $finalSummary->totalScore : 0;
+        $finalTimeSpent = $finalSummary ? $finalSummary->totalTimeSpent : 0;
     
-        // 6) Determine finalScore and finalTimeSpent based on the policy
-        $finalScore = 0;
-        $finalTimeSpent = 0;
-    
-        if ($activity && $activity->finalScorePolicy === 'highest_score') {
-            // Use the best overall attempt
-            $bestAttempt = $sorted->first(); // top in sorted list
-            if ($bestAttempt) {
-                $finalScore = $bestAttempt->totalScore;
-                $finalTimeSpent = $bestAttempt->totalTimeSpent;
-            }
-        } else {
-            // "last_attempt" or default
-            $currentAttemptSummary = $summaries->first(function ($sum) use ($attemptsTaken) {
-                return $sum->attemptNo == $attemptsTaken;
-            });
-            if ($currentAttemptSummary) {
-                $finalScore = $currentAttemptSummary->totalScore;
-                $finalTimeSpent = $currentAttemptSummary->totalTimeSpent;
-            }
+        // Only override the finalTimeSpent with the new attempt's overall time if the policy is last_attempt.
+        if ($activity->finalScorePolicy === 'last_attempt' && $request->has('overallTimeSpent')) {
+            $finalTimeSpent = $request->input('overallTimeSpent');
         }
     
-        // Store finalScore and finalTimeSpent in pivot
+        // 7) Update the pivot record with the new finalScore, finalTimeSpent, and rank.
         DB::table('activity_student')
             ->where('actID', $actID)
             ->where('studentID', $student->studentID)
             ->update([
                 'finalScore'     => $finalScore,
-                'finalTimeSpent' => $finalTimeSpent
+                'finalTimeSpent' => $finalTimeSpent,
+                'rank'           => $rank,
+                'updated_at'     => now()
             ]);
     
-        // 7) Clear progress
+        // 8) Clear the progress record for this activity.
         ActivityProgress::where('actID', $actID)
             ->where('progressable_id', $student->studentID)
             ->where('progressable_type', get_class($student))
@@ -175,11 +159,9 @@ class ActivitySubmissionController extends Controller
             'finalTimeSpent'=> $finalTimeSpent
         ], 200);
     }    
-        
 
     /**
      * Retrieve all submissions for a given activity.
-     * This endpoint can be used by teachers for review.
      */
     public function index($actID)
     {
@@ -199,9 +181,9 @@ class ActivitySubmissionController extends Controller
         }
 
         $validatedData = $request->validate([
-            'codeSubmission' => 'nullable|string',
-            'score'          => 'nullable|integer',
-            'timeSpent'      => 'nullable|integer',
+            'codeSubmission'  => 'nullable|string',
+            'score'           => 'nullable|integer',
+            'itemTimeSpent'   => 'nullable|integer',
         ]);
 
         $submission = ActivitySubmission::find($submissionID);
@@ -301,16 +283,16 @@ class ActivitySubmissionController extends Controller
         $results = $submissions->map(function ($submission) {
             $student = $submission->student;
             return [
-                'submissionID' => $submission->submissionID,
-                'studentName'  => $student ? $student->firstname . ' ' . $student->lastname : null,
-                'studentNo'    => $student ? $student->student_num : null,
-                'program'      => $student ? $student->program : null,
-                'score'        => $submission->score,
-                'timeSpent'    => $submission->timeSpent,
-                'submitted_at' => $submission->submitted_at,
-                'attemptNo'    => $submission->attemptNo,
+                'submissionID'   => $submission->submissionID,
+                'studentName'    => $student ? $student->firstname . ' ' . $student->lastname : null,
+                'studentNo'      => $student ? $student->student_num : null,
+                'program'        => $student ? $student->program : null,
+                'score'          => $submission->score,
+                'itemTimeSpent'  => $submission->itemTimeSpent,
+                'submitted_at'   => $submission->submitted_at,
+                'attemptNo'      => $submission->attemptNo,
                 'codeSubmission' => json_decode($submission->codeSubmission, true),
-                'rank'         => $submission->rank,
+                'rank'           => $submission->rank,
             ];
         });
 
