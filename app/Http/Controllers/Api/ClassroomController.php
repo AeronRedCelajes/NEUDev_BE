@@ -13,7 +13,7 @@ class ClassroomController extends Controller
     /**
      * Get all classes
      */
-    public function index()
+    public function index(Request $request)
     {
         $teacher = Auth::user();
     
@@ -21,8 +21,18 @@ class ClassroomController extends Controller
             return response()->json(['message' => 'Unauthorized'], 403);
         }
     
-        // Fetch only classes created by this teacher
-        $classes = Classroom::where('teacherID', $teacher->teacherID)->with('students')->get();
+        // Check if a query parameter for archived classes is provided.
+        $archived = $request->query('archived', false);
+    
+        $query = Classroom::where('teacherID', $teacher->teacherID);
+        
+        if ($archived) {
+            $query->where('activeClass', false);
+        } else {
+            $query->where('activeClass', true);
+        }
+    
+        $classes = $query->with('students')->get();
     
         return response()->json($classes);
     }
@@ -35,7 +45,10 @@ class ClassroomController extends Controller
         \Log::info('Received Request Data:', $request->all());
     
         $request->validate([
-            'className' => 'required|string|max:255',
+            'className'       => 'required|string|max:255',
+            'classSection'    => 'nullable|string|max:255',
+            'classCoverImage' => 'nullable|string', // or use image validation if handling file uploads
+            'activeClass'     => 'nullable|boolean',
         ]);
     
         $teacher = Auth::user();
@@ -45,9 +58,11 @@ class ClassroomController extends Controller
         }
     
         $classroom = Classroom::create([
-            'className' => $request->className,
-            'classSection' => $request->classSection,
-            'teacherID' => $teacher->teacherID,
+            'className'       => $request->className,
+            'classSection'    => $request->classSection,
+            'teacherID'       => $teacher->teacherID,
+            'classCoverImage' => $request->classCoverImage ?? null,
+            'activeClass'     => $request->has('activeClass') ? $request->activeClass : true,
         ]);
     
         return response()->json($classroom, 201);
@@ -65,19 +80,21 @@ class ClassroomController extends Controller
         }
     
         return response()->json([
-            'classID' => $classroom->classID,
-            'className' => $classroom->className,
+            'classID'      => $classroom->classID,
+            'className'    => $classroom->className,
             'classSection' => $classroom->classSection, 
-            'teacher' => [
-                'teacherID' => $classroom->teacher->teacherID,
+            'classCoverImage' => $classroom->classCoverImage,
+            'activeClass'     => $classroom->activeClass,
+            'teacher'      => [
+                'teacherID'   => $classroom->teacher->teacherID,
                 'teacherName' => "{$classroom->teacher->firstname} {$classroom->teacher->lastname}",
             ],
-            'students' => $classroom->students->map(function ($student) {
+            'students'     => $classroom->students->map(function ($student) {
                 return [
-                    'studentID' => $student->studentID,
-                    'firstname' => $student->firstname,
-                    'lastname' => $student->lastname,
-                    'email' => $student->email,
+                    'studentID'     => $student->studentID,
+                    'firstname'     => $student->firstname,
+                    'lastname'      => $student->lastname,
+                    'email'         => $student->email,
                 ];
             }),
         ]);
@@ -94,7 +111,9 @@ class ClassroomController extends Controller
             return response()->json(['message' => 'Unauthorized'], 403);
         }
 
-        $classroom = Classroom::where('classID', $id)->where('teacherID', $teacher->teacherID)->first();
+        $classroom = Classroom::where('classID', $id)
+            ->where('teacherID', $teacher->teacherID)
+            ->first();
 
         if (!$classroom) {
             return response()->json(['message' => 'Class not found or you are not authorized to delete this class'], 404);
@@ -105,42 +124,59 @@ class ClassroomController extends Controller
         return response()->json(['message' => 'Class deleted successfully']);
     }
 
-
-    // In ClassroomController.php
-
     /**
      * Update a class (Only for Teachers)
      */
     public function update(Request $request, $id)
     {
         $teacher = Auth::user();
-
+    
         if (!$teacher || !$teacher instanceof \App\Models\Teacher) {
             return response()->json(['message' => 'Unauthorized'], 403);
         }
-
+    
         // Find the class created by this teacher
         $classroom = Classroom::where('classID', $id)
             ->where('teacherID', $teacher->teacherID)
             ->first();
-
+    
         if (!$classroom) {
             return response()->json(['message' => 'Class not found or you are not authorized to update this class'], 404);
         }
-
-        // Validate incoming data
+    
+        // Validate incoming data.
+        // Note: For file uploads, we use the "image" rule.
         $request->validate([
-            'className'    => 'required|string|max:255',
-            'classSection' => 'required|string|max:255'
+            'className'       => 'required|string|max:255',
+            'classSection'    => 'required|string|max:255',
+            'classCoverImage' => 'nullable|image|mimes:jpg,jpeg,png,gif,svg|max:2048',
+            'activeClass'     => 'nullable|boolean',
         ]);
-
-        // Update the fields
+    
+        // Update text fields.
         $classroom->className    = $request->className;
         $classroom->classSection = $request->classSection;
+    
+        // Check if a file is uploaded for the cover image.
+        if ($request->hasFile('classCoverImage')) {
+            // Store the file in the "public/class_covers" directory.
+            $path = $request->file('classCoverImage')->store('class_covers', 'public');
+            // Update the classroom cover image field with the public URL.
+            $classroom->classCoverImage = asset('storage/' . $path);
+        } else {
+            // If no new file, fall back to any provided string or keep existing value.
+            $classroom->classCoverImage = $request->classCoverImage ?? $classroom->classCoverImage;
+        }
+    
+        if ($request->has('activeClass')) {
+            $classroom->activeClass = $request->activeClass;
+        }
+    
         $classroom->save();
-
+    
         return response()->json($classroom);
     }
+
 
     /**
      * Enroll a student in a class
@@ -198,34 +234,30 @@ class ClassroomController extends Controller
         return response()->json(['message' => 'Student unenrolled successfully']);
     }
 
-
     /**
      * Get only the classes a student is enrolled in
      */
-    public function getStudentClasses()
-    {
-        $student = Auth::user();
-    
-        if (!$student || !$student instanceof \App\Models\Student) {
-            return response()->json(['message' => 'Unauthorized'], 403);
-        }
-    
-        // Fetch only the classes where the student is enrolled, with teacher details
-        $classes = $student->classes()->with('teacher')->get(); 
-    
-        // Transform response to include teacher's full name
-        $formattedClasses = $classes->map(function ($class) {
-            return [
-                'classID' => $class->classID,
-                'className' => $class->className,
-                'classSection' => $class->classSection, 
-                'teacherName' => $class->teacher ? "{$class->teacher->firstname} {$class->teacher->lastname}" : 'Unknown Teacher'
-            ];
-        });
-    
-        return response()->json($formattedClasses);
+ public function getStudentClasses()
+{
+    $student = Auth::user();
 
+    if (!$student || !$student instanceof \App\Models\Student) {
+        return response()->json(['message' => 'Unauthorized'], 403);
     }
+
+    // Fetch the classes where the student is enrolled along with teacher details
+    $classes = $student->classes()->with('teacher')->get();
+
+    // Convert each class model to an array and add the teacherName field
+    $formattedClasses = $classes->map(function ($class) {
+        $data = $class->toArray(); // includes all class fields
+        $data['teacherName'] = $class->teacher ? "{$class->teacher->firstname} {$class->teacher->lastname}" : 'Unknown Teacher';
+        return $data;
+    });
+
+    return response()->json($formattedClasses);
+}
+
 
     public function showClassInfo($id)
     {
@@ -238,10 +270,12 @@ class ClassroomController extends Controller
 
         // Return only the necessary class info as JSON
         return response()->json([
-            'classID'      => $classroom->classID,
-            'className'    => $classroom->className,
-            'classSection' => $classroom->classSection,
-            'teacher'      => [
+            'classID'       => $classroom->classID,
+            'className'     => $classroom->className,
+            'classSection'  => $classroom->classSection,
+            'classCoverImage' => $classroom->classCoverImage,
+            'activeClass'     => $classroom->activeClass,
+            'teacher'       => [
                 'teacherID'   => $classroom->teacher->teacherID,
                 'teacherName' => $classroom->teacher->firstname . ' ' . $classroom->teacher->lastname,
             ],
@@ -265,14 +299,11 @@ class ClassroomController extends Controller
                 'studentNumber' => $student->student_num,
                 'profileImage'  => $student->profileImage 
                     ? url('storage/' . $student->profileImage) 
-                    : url('storage/profile_images/default-avatar.jpg'), // Use default if no image
+                    : url('storage/profile_images/default-avatar.jpg'),
                 'averageScore'  => rand(70, 100) // Replace with actual computation
             ];
         });
     
         return response()->json($students);
     }
-    
-
 }
-
