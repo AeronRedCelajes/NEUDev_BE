@@ -23,9 +23,8 @@ return new class extends Migration {
             $table->longText('codeSubmission')->nullable();
             
             $table->integer('score')->nullable();
-            $table->integer('rank')->nullable();
             // timeSpent stored as integer (seconds) for easier calculations
-            $table->integer('timeSpent')->nullable();
+            $table->integer('itemTimeSpent')->nullable();
             $table->dateTime('submitted_at')->nullable();
             $table->timestamps();
 
@@ -52,6 +51,7 @@ return new class extends Migration {
             $table->integer('attemptsTaken')->default(0);
             $table->integer('finalScore')->nullable();
             $table->integer('finalTimeSpent')->nullable();
+            $table->integer('rank')->nullable();
             $table->timestamps();
 
             $table->unique(['actID', 'studentID']);
