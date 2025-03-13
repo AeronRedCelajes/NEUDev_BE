@@ -40,8 +40,20 @@ Route::controller(AuthController::class)->group(function () {
     Route::post('/login', 'login');
 });
 
+// // Protected Routes (Requires Authentication via Sanctum)
+// Route::middleware(['auth:sanctum', 'single.session'])->group(function () {
+//     Route::post('/logout', [AuthController::class, 'logout']);
+//     Route::get('/user', function (Request $request) {
+//         $user = $request->user();
+//         return response()->json([
+//             'user' => $user,
+//             'user_type' => $user instanceof \App\Models\Student ? 'student' :
+//                 ($user instanceof \App\Models\Teacher ? 'teacher' : 'unknown'),
+//         ]);
+//     });
+
 // Protected Routes (Requires Authentication via Sanctum)
-Route::middleware(['auth:sanctum', 'single.session'])->group(function () {
+Route::middleware('auth:sanctum')->group(function () {
     Route::post('/logout', [AuthController::class, 'logout']);
     Route::get('/user', function (Request $request) {
         $user = $request->user();

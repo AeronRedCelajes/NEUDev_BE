@@ -21,7 +21,6 @@ class Teacher extends Authenticatable
 		'lastname',
 		'email',
 		'password',
-		'lastToken',
 		'profileImage',
         'coverImage'
 	];

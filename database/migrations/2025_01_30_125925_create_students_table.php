@@ -20,7 +20,6 @@ return new class extends Migration
           $table->string('student_num')->unique();// Enforce uniqueness
           $table->enum('program', ['BSCS', 'BSIT', 'BSEMC', 'BSIS']); // Restrict values
           $table->string('password');
-          $table->string('lastToken')->nullable();
           $table->string('profileImage')->nullable();
           $table->string('coverImage')->nullable();
         });

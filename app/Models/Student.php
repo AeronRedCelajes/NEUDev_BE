@@ -22,7 +22,6 @@ class Student extends Authenticatable
         'password',
         'student_num',
         'program',
-        'lastToken',
         'profileImage',
         'coverImage',
     ];
