@@ -245,11 +245,11 @@ class ActivityController extends Controller
                 'actAttempts'           => 'required|integer|min:0',
                 'openDate'              => 'required|date',
                 'closeDate'             => 'required|date|after:openDate',
-                'maxPoints'             => 'required|integer|min:1',
+                'maxPoints'             => 'required|numeric|min:1',
                 'items'                 => 'required|array|min:1',
                 'items.*.itemID'        => 'required|exists:items,itemID',
                 'items.*.itemTypeID'    => 'required|exists:item_types,itemTypeID',
-                'items.*.actItemPoints' => 'required|integer|min:1',
+                'items.*.actItemPoints' => 'required|numeric|min:1',
                 'finalScorePolicy'      => 'required|in:last_attempt,highest_score',
             ]);
 
@@ -398,6 +398,11 @@ class ActivityController extends Controller
             'current_time'   => $now->toDateTimeString(),
         ]);
 
+        // Now call attachScores on each set of activities before returning them
+        $upcomingActivities  = $this->attachScores($upcomingActivities);
+        $ongoingActivities   = $this->attachScores($ongoingActivities);
+        $completedActivities = $this->attachScores($completedActivities);
+
         if ($upcomingActivities->isEmpty() && $ongoingActivities->isEmpty() && $completedActivities->isEmpty()) {
             return response()->json([
                 'message' => 'No activities found.',
@@ -412,6 +417,52 @@ class ActivityController extends Controller
             'ongoing'   => $ongoingActivities,
             'completed' => $completedActivities
         ]);
+    }
+
+        /**
+     * Helper to attach classAvgScore and highestScore to each activity
+     */
+    private function attachScores($activities)
+    {
+        return $activities->map(function ($act) {
+            // Fetch numeric averages
+            $rawAvg = DB::table('activity_student')
+                ->where('actID', $act->actID)
+                ->avg('finalScore');
+    
+            $rawMax = DB::table('activity_student')
+                ->where('actID', $act->actID)
+                ->max('finalScore');
+    
+            // Format them using our helper
+            $act->classAvgScore = $this->formatScore($rawAvg);
+            $act->highestScore  = $this->formatScore($rawMax);
+    
+            return $act;
+        });
+    }
+
+        /**
+     * Format a numeric value with up to 2 decimal places, 
+     * but if it's a whole number (e.g., 145.00), show just '145'.
+     */
+    private function formatScore($value)
+    {
+        // If it's null or invalid, return '-'
+        if ($value === null) {
+            return '-';
+        }
+
+        // Round to 2 decimals
+        $rounded = round($value, 2);
+
+        // If there's no decimal part, display as integer (e.g., '145')
+        if (fmod($rounded, 1.0) === 0.0) {
+            return (int) $rounded;
+        }
+
+        // Otherwise, format with 2 decimal places (e.g., '145.12')
+        return number_format($rounded, 2);
     }
 
     /**
@@ -450,11 +501,11 @@ class ActivityController extends Controller
                 'actAttempts'           => 'sometimes|required|integer|min:0',
                 'openDate'              => 'sometimes|required|date',
                 'closeDate'             => 'sometimes|required|date|after:openDate',
-                'maxPoints'             => 'sometimes|required|integer|min:1',
+                'maxPoints'             => 'sometimes|required|numeric|min:1',
                 'items'                 => 'sometimes|required|array|min:1',
                 'items.*.itemID'        => 'required_with:items|exists:items,itemID',
                 'items.*.itemTypeID'    => 'required_with:items|exists:item_types,itemTypeID',
-                'items.*.actItemPoints' => 'required_with:items|integer|min:1',
+                'items.*.actItemPoints' => 'required_with:items|numeric|min:1',
                 'finalScorePolicy'      => 'sometimes|required|in:last_attempt,highest_score',
             ]);
 
@@ -724,60 +775,44 @@ class ActivityController extends Controller
         if (!$activity) {
             return response()->json(['message' => 'Activity not found'], 404);
         }
-        
-        $activity->refresh();
     
-        $items = $activity->items->map(function ($ai) use ($activity) {
-            $ai->refresh();
-    
-            // Check if the linked item exists.
+        $items = $activity->items->map(function ($ai) {
             $item = $ai->item;
             if (!$item) {
                 \Log::error("Item not found for activity item ID: {$ai->id}");
-                return null;  // Skip this record.
+                return null;
             }
     
-            $programmingLanguages = $item->programmingLanguages->map(function ($lang) {
+            // Return testCaseID so the front-end can match results
+            $testCases = $item->testCases->map(function ($tc) {
                 return [
-                    'progLangID'   => $lang->progLangID,
-                    'progLangName' => $lang->progLangName,
+                    'testCaseID'     => $tc->testCaseID, // <-- add this line
+                    'inputData'      => $tc->inputData,
+                    'expectedOutput' => $tc->expectedOutput,
+                    'testCasePoints' => $tc->testCasePoints,
+                    'isHidden'       => $tc->isHidden,
                 ];
-            })->values()->all();
+            });
     
             return [
-                'itemID'                => $item->itemID,
-                'itemName'              => $item->itemName ?? 'Unknown',
-                'itemDesc'              => $item->itemDesc ?? '',
-                'itemDifficulty'        => $item->itemDifficulty ?? 'N/A',
-                'programming_languages' => $programmingLanguages,
-                'itemType'              => $ai->itemType->itemTypeName ?? 'N/A',
-                'testCases'             => $item->testCases->map(function ($tc) {
-                    return [
-                        'inputData'      => $tc->inputData,
-                        'expectedOutput' => $tc->expectedOutput,
-                        'testCasePoints' => $tc->testCasePoints,
-                        'isHidden'       => $tc->isHidden,
-                    ];
-                }),
-                'avgStudentScore'       => $this->calculateAverageScore($item->itemID, $activity->actID),
-                'avgStudentTimeSpent'   => $this->calculateAverageTimeSpent($item->itemID, $activity->actID),
-                'actItemPoints'         => $ai->actItemPoints,
+                'itemID'       => $item->itemID,
+                'itemName'     => $item->itemName ?? 'Unknown',
+                'itemDesc'     => $item->itemDesc ?? '',
+                'itemType'     => $ai->itemType->itemTypeName ?? 'N/A',
+                'testCases'    => $testCases,
+                'testCaseTotalPoints' => $item->testCases->sum('testCasePoints'),
+                'actItemPoints'=> $ai->actItemPoints,
+                // etc. any other fields
             ];
-        })->filter(); // Remove any null values
+        })->filter();
     
         return response()->json([
             'activityName'     => $activity->actTitle,
             'actDesc'          => $activity->actDesc,
             'maxPoints'        => $activity->maxPoints,
             'actDuration'      => $activity->actDuration,
-            'allowedLanguages' => $activity->programmingLanguages->map(function ($lang) {
-                return [
-                    'progLangID'        => $lang->progLangID,
-                    'progLangName'      => $lang->progLangName,
-                    'progLangExtension' => $lang->progLangExtension,
-                ];
-            })->values(),
-            'items'            => $items,
+            'finalScorePolicy' => $activity->finalScorePolicy,
+            'items'            => $items->values(), // ensure it's an array
         ]);
     }
     
@@ -993,40 +1028,4 @@ class ActivityController extends Controller
         return response()->json(['message' => 'Activity settings updated successfully.']);
     }
 
-    ///////////////////////////////////////////////////
-    // NEW FUNCTION: Overall Student Score Across Activities
-    ///////////////////////////////////////////////////
-    public function getStudentOverallScore($classID)
-    {
-        $student = Auth::user();
-        if (!$student || !$student instanceof \App\Models\Student) {
-            return response()->json(['message' => 'Unauthorized'], 403);
-        }
-
-        $activities = Activity::where('classID', $classID)->get();
-
-        $totalScore = 0;
-        $totalMaxPoints = 0;
-
-        foreach ($activities as $activity) {
-            $submission = ActivitySubmission::where('actID', $activity->actID)
-                ->where('studentID', $student->studentID)
-                ->orderBy('submitted_at', 'desc')
-                ->first();
-            if ($submission) {
-                $totalScore += $submission->score;
-            }
-            $totalMaxPoints += $activity->maxPoints;
-        }
-
-        $averagePercentage = $totalMaxPoints > 0
-            ? round(($totalScore / $totalMaxPoints) * 100, 2)
-            : 0;
-
-        return response()->json([
-            'totalScore'         => $totalScore,
-            'totalMaxPoints'     => $totalMaxPoints,
-            'averagePercentage'  => $averagePercentage,
-        ]);
-    }
 }

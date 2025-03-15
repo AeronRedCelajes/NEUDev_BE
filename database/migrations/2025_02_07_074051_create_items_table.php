@@ -19,7 +19,7 @@ return new class extends Migration {
             $table->string('itemName');                  // Title
             $table->text('itemDesc');                    // Description
             $table->enum('itemDifficulty', ['Beginner', 'Intermediate', 'Advanced']);
-            $table->integer('itemPoints');
+            $table->float('itemPoints');
             
             $table->timestamps();
 

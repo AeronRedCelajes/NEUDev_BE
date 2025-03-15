@@ -11,20 +11,32 @@ return new class extends Migration {
             $table->id('submissionID');
             $table->unsignedBigInteger('actID');
             $table->unsignedBigInteger('studentID');
-            // New column: itemID for per-item submission details.
+            // For per-item submission details:
             $table->unsignedBigInteger('itemID');
-            
-            // Track the attempt number for multiple attempts per student per item.
+            // Track attempt number (multiple attempts per student per activity)
             $table->integer('attemptNo')->default(1);
             
-            // Store the submitted files as a JSON string.
-            // For multiple files, the JSON array might look like:
-            // [{"id":0, "fileName": "main", "extension": "py", "content": "print('hello')"}, ...]
+            // Store the submitted files (an array of file objects) as a JSON string.
             $table->longText('codeSubmission')->nullable();
             
-            $table->integer('score')->nullable();
-            // timeSpent stored as integer (seconds) for easier calculations
+            // Detailed test case results as a JSON string.
+            $table->longText('testCaseResults')->nullable();
+
+            // Optionally, store the remaining time (if relevant) at submission.
+            $table->integer('timeRemaining')->nullable();
+
+            // This can store the selected programming language for this submission.
+            $table->string('selectedLanguage')->nullable();
+
+            // Store the score for this item.
+            $table->float('score')->nullable();
+            // Time spent on this specific item, in seconds.
             $table->integer('itemTimeSpent')->nullable();
+
+            $table->integer('timeSpent')->nullable();
+
+            
+            // Record the time when the submission was made.
             $table->dateTime('submitted_at')->nullable();
             $table->timestamps();
 
@@ -43,13 +55,13 @@ return new class extends Migration {
                   ->onDelete('cascade');
         });
 
-        // Pivot table for tracking overall activity progress per student, if needed.
+        // Pivot table for overall activity progress per student.
         Schema::create('activity_student', function (Blueprint $table) {
             $table->id();
             $table->unsignedBigInteger('actID');
             $table->unsignedBigInteger('studentID');
             $table->integer('attemptsTaken')->default(0);
-            $table->integer('finalScore')->nullable();
+            $table->float('finalScore')->nullable();
             $table->integer('finalTimeSpent')->nullable();
             $table->integer('rank')->nullable();
             $table->timestamps();

@@ -119,6 +119,7 @@ Route::middleware('auth:sanctum')->group(function () {
             Route::delete('/class/{id}', 'destroy');
             Route::get('/class/{classID}/students', 'getClassStudents');
             Route::delete('/class/{classID}/unenroll/{studentID}', 'unenrollStudent');
+            Route::get('/class/{classID}/studentsWithScores', 'getClassStudentsWithOverallScores');
         });
 
         // Teacher Activity endpoints
@@ -161,7 +162,8 @@ Route::middleware('auth:sanctum')->group(function () {
 
         // ACTIVITY SUBMISSION
         Route::get('/activities/{actID}/submissions', [ActivitySubmissionController::class, 'index']);
-        Route::get('/activities/{actID}/review', [ActivitySubmissionController::class, 'reviewSubmissions']);
+        Route::get('/activities/{actID}/review', [ActivitySubmissionController::class, 'getActivitySubmissionByTeacher']);
+        Route::get('/activities/{actID}/submissionReview', [ActivitySubmissionController::class, 'getSubmissionDetail']);
 
         // 📌 Bulletin Board Routes (Newly Added)
         Route::get('/class/{classID}/bulletin', [BulletinController::class, 'index']); // Get posts by class
