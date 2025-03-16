@@ -12,6 +12,7 @@ use App\Http\Controllers\Api\ItemTypeController;
 use App\Http\Controllers\Api\ProgrammingLanguageController;
 use App\Http\Controllers\Api\BulletinController;
 use App\Http\Controllers\Api\ConcernController;
+use App\Http\Controllers\Api\NotificationController;
 
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Route;
@@ -169,6 +170,14 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::post('/bulletin', [BulletinController::class, 'store']); // Create a new post
         Route::delete('/bulletin/{id}', [BulletinController::class, 'destroy']); // Delete a post
     });
+
+    // -------------------------------
+    // Notification Routes
+    // -------------------------------
+    Route::get('/notifications', [NotificationController::class, 'index']);
+    Route::patch('/notifications/{id}/read', [NotificationController::class, 'markAsRead']);
+    Route::delete('/notifications/{id}', [NotificationController::class, 'destroy']);
+
 
     // -------------------------------
     // Concern Routes

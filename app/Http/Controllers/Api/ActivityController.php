@@ -7,11 +7,15 @@ use Illuminate\Http\Request;
 use App\Models\Activity;
 use App\Models\ActivitySubmission;
 use App\Models\ActivityItem;
+use App\Events\ActivityStarted;
+use App\Events\DeadlineChanged;
+use App\Events\ActivityCompleted;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
 
 class ActivityController extends Controller
 {
+
     ///////////////////////////////////////////////////
     // FUNCTIONS FOR CLASS MANAGEMENT PAGE VIA ACTIVITY
     ///////////////////////////////////////////////////
@@ -57,6 +61,18 @@ class ActivityController extends Controller
             ->orderBy('closeDate', 'desc')
             ->get();
 
+
+        // AUTOMATIC NOTIFICATION: For each ongoing activity, dispatch an ActivityStarted event 
+        // for the student if one hasn't already been sent.
+        foreach ($ongoingActivities as $activity) {
+            $exists = $student->notifications()
+                ->where('type', 'Activity Started')
+                ->whereJsonContains('data', ['activity_id' => $activity->actID])
+                ->exists();
+            if (!$exists) {
+                event(new ActivityStarted($activity, $student));
+            }
+        }
         // Attach student-specific details (Rank, Score, Duration, etc.)
         $upcomingActivities  = $this->attachStudentDetails($upcomingActivities, $student);
         $ongoingActivities   = $this->attachStudentDetails($ongoingActivities, $student);
@@ -336,6 +352,12 @@ class ActivityController extends Controller
     {
         $now = now();
 
+        // Before calling update(), fetch the activities that are about to be marked as completed
+        $activitiesToComplete = Activity::where('classID', $classID)
+            ->where('closeDate', '<', $now)
+            ->whereNull('completed_at')
+            ->get();
+
         // Mark activities as completed if closeDate has passed.
         $updatedCount = Activity::where('classID', $classID)
             ->where('closeDate', '<', $now)
@@ -344,6 +366,14 @@ class ActivityController extends Controller
                 'completed_at' => $now,
                 'updated_at'   => $now,
             ]);
+
+        // Dispatch ActivityCompleted event for each newly completed activity
+        foreach ($activitiesToComplete as $completedAct) {
+            $teacher = \App\Models\Teacher::find($completedAct->teacherID);
+            if ($teacher) {
+                event(new ActivityCompleted($completedAct, $teacher));
+            }
+        }
 
         \Log::info("Activities marked as completed: $updatedCount");
 
@@ -398,6 +428,22 @@ class ActivityController extends Controller
             'current_time'   => $now->toDateTimeString(),
         ]);
 
+        // AUTOMATIC NOTIFICATION for Teachers:
+        // For each ongoing activity, dispatch an ActivityStarted event for the teacher if one hasn't been sent.
+        foreach ($ongoingActivities as $activity) {
+            // Retrieve the teacher for this activity.
+            $teacher = \App\Models\Teacher::find($activity->teacherID);
+            if ($teacher) {
+                $exists = $teacher->notifications()
+                    ->where('type', 'Activity Started')
+                    ->whereJsonContains('data', ['activity_id' => $activity->actID])
+                    ->exists();
+                if (!$exists) {
+                    event(new ActivityStarted($activity, $teacher));
+                }
+            }
+        }
+
         // Now call attachScores on each set of activities before returning them
         $upcomingActivities  = $this->attachScores($upcomingActivities);
         $ongoingActivities   = $this->attachScores($ongoingActivities);
@@ -442,7 +488,7 @@ class ActivityController extends Controller
         });
     }
 
-        /**
+    /**
      * Format a numeric value with up to 2 decimal places, 
      * but if it's a whole number (e.g., 145.00), show just '145'.
      */
@@ -528,6 +574,22 @@ class ActivityController extends Controller
                 'actAttempts', 'openDate', 'closeDate', 'maxPoints'
             ]));
 
+            if ($request->has('closeDate')) {
+                // The teacher just changed the closeDate
+                // Fetch all students enrolled in this class
+                $students = \DB::table('class_student')
+                    ->where('classID', $activity->classID)
+                    ->pluck('studentID');
+            
+                // For each student, dispatch the event
+                foreach ($students as $studentID) {
+                    $studentModel = \App\Models\Student::find($studentID);
+                    if ($studentModel) {
+                        event(new DeadlineChanged($activity, $studentModel));
+                    }
+                }
+            }
+
             if ($request->has('finalScorePolicy')) {
                 $activity->finalScorePolicy = $request->finalScorePolicy;
                 $activity->save();
@@ -544,7 +606,7 @@ class ActivityController extends Controller
                     if ($newTimeRemaining < 0) {
                         $newTimeRemaining = 0;
                     }
-                    $progress->timeRemaining = $newTimeRemaining;
+                    $progress->draftTimeRemaining = $newTimeRemaining;
                     $progress->save();
                 }
             }
@@ -859,7 +921,9 @@ class ActivityController extends Controller
                 ->avg('s.score');
         }
     
-        return $avg !== null ? number_format(round($avg, 2), 2) : '-';
+        // Use formatScore to ensure that a whole number (e.g., 50.00) is displayed as 50,
+        // while decimals (e.g., 50.16) are retained.
+        return $avg !== null ? $this->formatScore($avg) : '-';
     }
 
     /**

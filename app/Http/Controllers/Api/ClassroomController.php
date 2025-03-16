@@ -190,7 +190,7 @@ class ClassroomController extends Controller
     public function enrollStudent(Request $request, $classID)
     {
         $student = Auth::user();
-        if (!$student || !$student instanceof \App\Models\Student) {
+        if (!$student || !$student instanceof Student) {
             return response()->json(['message' => 'Unauthorized'], 403);
         }
 
@@ -213,7 +213,7 @@ class ClassroomController extends Controller
     public function unenrollStudent(Request $request, $classID, $studentID)
     {
         $teacher = Auth::user();
-        if (!$teacher || !$teacher instanceof \App\Models\Teacher) {
+        if (!$teacher || !$teacher instanceof Teacher) {
             return response()->json(['message' => 'Unauthorized'], 403);
         }
     
@@ -236,7 +236,7 @@ class ClassroomController extends Controller
     public function getStudentClasses()
     {
         $student = Auth::user();
-        if (!$student || !$student instanceof \App\Models\Student) {
+        if (!$student || !$student instanceof Student) {
             return response()->json(['message' => 'Unauthorized'], 403);
         }
 

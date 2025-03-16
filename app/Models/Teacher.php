@@ -41,5 +41,10 @@ class Teacher extends Authenticatable
 	{
 		return $this->hasMany(Classroom::class, 'teacherID', 'teacherID');
 	}
+
+	public function notifications()
+	{
+		return $this->morphMany(Notification::class, 'notifiable');
+	}
 	
 }

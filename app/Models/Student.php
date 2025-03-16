@@ -38,4 +38,9 @@ class Student extends Authenticatable
     {
         return $this->belongsToMany(Classroom::class, 'class_student', 'studentID', 'classID');
     }
+
+    public function notifications()
+    {
+        return $this->morphMany(Notification::class, 'notifiable');
+    }
 }

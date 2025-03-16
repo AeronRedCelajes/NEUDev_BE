@@ -3,8 +3,10 @@
 namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
+use App\Events\AnnouncementPosted;
 use Illuminate\Http\Request;
 use App\Models\BulletinPost;
+use App\Models\Classroom;
 use Illuminate\Support\Facades\Auth;
 
 class BulletinController extends Controller {
@@ -39,6 +41,13 @@ class BulletinController extends Controller {
             'title' => $request->title,
             'message' => $request->message,
         ]);
+
+        // Fetch all students in the class
+        $classroom = Classroom::find($request->classID);
+        $students = $classroom ? $classroom->students : collect([]);
+
+        // Dispatch the AnnouncementPosted event
+        event(new AnnouncementPosted($post, $students));
 
         return response()->json($post, 201);
     }
