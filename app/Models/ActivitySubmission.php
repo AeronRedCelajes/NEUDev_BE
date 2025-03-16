@@ -17,10 +17,14 @@ class ActivitySubmission extends Model
         'actID',
         'studentID',
         'itemID',         // Added for per-item submission
-        'attemptNo',      // New field for tracking attempt number per item
-        'codeSubmission', // Will store JSON string for multiple files
+        'attemptNo', 
+        'codeSubmission', // Will store JSON string 
+        'testCaseResults', // Will store JSON string 
+        'timeRemaining',
+        'selectedLanguage', 
         'score',
         'itemTimeSpent',
+        'timeSpent',
         'submitted_at',
     ];
 
@@ -28,6 +32,7 @@ class ActivitySubmission extends Model
     protected $casts = [
         'codeSubmission' => 'array',
     ];
+    
 
     /**
      * Get the associated activity.

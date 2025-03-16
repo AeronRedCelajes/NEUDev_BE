@@ -190,7 +190,7 @@ class ClassroomController extends Controller
     public function enrollStudent(Request $request, $classID)
     {
         $student = Auth::user();
-        if (!$student || !$student instanceof \App\Models\Student) {
+        if (!$student || !$student instanceof Student) {
             return response()->json(['message' => 'Unauthorized'], 403);
         }
 
@@ -213,7 +213,7 @@ class ClassroomController extends Controller
     public function unenrollStudent(Request $request, $classID, $studentID)
     {
         $teacher = Auth::user();
-        if (!$teacher || !$teacher instanceof \App\Models\Teacher) {
+        if (!$teacher || !$teacher instanceof Teacher) {
             return response()->json(['message' => 'Unauthorized'], 403);
         }
     
@@ -236,7 +236,7 @@ class ClassroomController extends Controller
     public function getStudentClasses()
     {
         $student = Auth::user();
-        if (!$student || !$student instanceof \App\Models\Student) {
+        if (!$student || !$student instanceof Student) {
             return response()->json(['message' => 'Unauthorized'], 403);
         }
 
@@ -301,4 +301,80 @@ class ClassroomController extends Controller
     
         return response()->json($students);
     }
+
+
+    ///////////////////////////////////////////////////
+    // NEW FUNCTION: Overall Student Score Across Activities
+    ///////////////////////////////////////////////////
+    
+    public function getClassStudentsWithOverallScores($classID)
+    {
+        // 1) Verify teacher
+        $teacher = Auth::user();
+        if (!$teacher || !$teacher instanceof \App\Models\Teacher) {
+            return response()->json(['error' => 'Unauthorized'], 403);
+        }
+
+        // 2) Get the class from DB, ensure the teacher owns it or has permission
+        $class = \DB::table('classes')
+            ->where('classID', $classID)
+            ->where('teacherID', $teacher->teacherID)
+            ->first();
+
+        if (!$class) {
+            return response()->json(['error' => 'Class not found or unauthorized'], 404);
+        }
+
+        // 3) Get all the students for this class
+        $students = \DB::table('students')
+            ->join('class_student', 'students.studentID', '=', 'class_student.studentID')
+            ->where('class_student.classID', $classID)
+            ->select('students.studentID', 'students.firstname', 'students.lastname',
+                    'students.student_num as studentNumber', 'students.profileImage')
+            ->get();
+
+        // 4) Get all activities in this class
+        $activities = \App\Models\Activity::where('classID', $classID)->get();
+
+        // Compute the total possible points for the class
+        $totalMaxPoints = $activities->sum('maxPoints');
+
+        // 5) For each student, sum up finalScore from pivot "activity_student" for these activities
+        $results = [];
+        foreach ($students as $stud) {
+            // Sum the finalScore from pivot
+            $sumOfScores = 0;
+
+            foreach ($activities as $act) {
+                // The pivot row for this student & activity
+                $pivot = \DB::table('activity_student')
+                    ->where('actID', $act->actID)
+                    ->where('studentID', $stud->studentID)
+                    ->first();
+                if ($pivot && $pivot->finalScore) {
+                    $sumOfScores += $pivot->finalScore;
+                }
+            }
+
+            // Build the array, storing the fraction "sumOfScores / totalMaxPoints"
+            $results[] = [
+                'studentID'     => $stud->studentID,
+                'firstname'     => $stud->firstname,
+                'lastname'      => $stud->lastname,
+                'studentNumber' => $stud->studentNumber,
+                'profileImage'  => $stud->profileImage ? asset('storage/' . $stud->profileImage) : null,
+
+                // The fraction or numeric fields – your choice
+                'sumOfScores'      => $sumOfScores,
+                'sumOfMaxPoints'   => $totalMaxPoints,
+
+                // Or you can store a preformatted string e.g. "21/60".
+                // But usually best to do the string in the frontend, for sorting reasons
+                // 'averageScoreString' => "$sumOfScores/$totalMaxPoints"
+            ];
+        }
+
+        return response()->json($results);
+    }
+    
 }

@@ -22,7 +22,6 @@ class Student extends Authenticatable
         'password',
         'student_num',
         'program',
-        'lastToken',
         'profileImage',
         'coverImage',
     ];
@@ -38,5 +37,10 @@ class Student extends Authenticatable
     public function classes()
     {
         return $this->belongsToMany(Classroom::class, 'class_student', 'studentID', 'classID');
+    }
+
+    public function notifications()
+    {
+        return $this->morphMany(Notification::class, 'notifiable');
     }
 }
