@@ -9,7 +9,6 @@ use App\Events\ActivityStarted;
 use App\Events\DeadlineReminder;
 use App\Events\DeadlineChanged;
 use App\Events\AnnouncementPosted;
-use App\Events\ActivityCompleted;
 use App\Events\ConcernPosted;
 
 // Listeners
@@ -17,7 +16,6 @@ use App\Listeners\SendActivityStartedNotification;
 use App\Listeners\SendDeadlineReminderNotification;
 use App\Listeners\SendDeadlineChangedNotification;
 use App\Listeners\SendAnnouncementNotification;
-use App\Listeners\SendActivityCompletedNotification;
 use App\Listeners\SendConcernNotification;
 
 class EventServiceProvider extends ServiceProvider
@@ -34,9 +32,6 @@ class EventServiceProvider extends ServiceProvider
         ],
         AnnouncementPosted::class => [
             SendAnnouncementNotification::class,
-        ],
-        ActivityCompleted::class => [
-            SendActivityCompletedNotification::class,
         ],
         ConcernPosted::class => [
             SendConcernNotification::class,

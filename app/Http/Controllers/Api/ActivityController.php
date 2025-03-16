@@ -7,9 +7,9 @@ use Illuminate\Http\Request;
 use App\Models\Activity;
 use App\Models\ActivitySubmission;
 use App\Models\ActivityItem;
-use App\Events\ActivityStarted;
+// use App\Events\ActivityStarted;
 use App\Events\DeadlineChanged;
-use App\Events\ActivityCompleted;
+// use App\Events\ActivityCompleted;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
 
@@ -62,17 +62,17 @@ class ActivityController extends Controller
             ->get();
 
 
-        // AUTOMATIC NOTIFICATION: For each ongoing activity, dispatch an ActivityStarted event 
-        // for the student if one hasn't already been sent.
-        foreach ($ongoingActivities as $activity) {
-            $exists = $student->notifications()
-                ->where('type', 'Activity Started')
-                ->whereJsonContains('data', ['activity_id' => $activity->actID])
-                ->exists();
-            if (!$exists) {
-                event(new ActivityStarted($activity, $student));
-            }
-        }
+        // // AUTOMATIC NOTIFICATION: For each ongoing activity, dispatch an ActivityStarted event 
+        // // for the student if one hasn't already been sent.
+        // foreach ($ongoingActivities as $activity) {
+        //     $exists = $student->notifications()
+        //         ->where('type', 'Activity Started')
+        //         ->whereJsonContains('data', ['activity_id' => $activity->actID])
+        //         ->exists();
+        //     if (!$exists) {
+        //         event(new ActivityStarted($activity, $student));
+        //     }
+        // }
         // Attach student-specific details (Rank, Score, Duration, etc.)
         $upcomingActivities  = $this->attachStudentDetails($upcomingActivities, $student);
         $ongoingActivities   = $this->attachStudentDetails($ongoingActivities, $student);
@@ -367,13 +367,13 @@ class ActivityController extends Controller
                 'updated_at'   => $now,
             ]);
 
-        // Dispatch ActivityCompleted event for each newly completed activity
-        foreach ($activitiesToComplete as $completedAct) {
-            $teacher = \App\Models\Teacher::find($completedAct->teacherID);
-            if ($teacher) {
-                event(new ActivityCompleted($completedAct, $teacher));
-            }
-        }
+        // // Dispatch ActivityCompleted event for each newly completed activity
+        // foreach ($activitiesToComplete as $completedAct) {
+        //     $teacher = \App\Models\Teacher::find($completedAct->teacherID);
+        //     if ($teacher) {
+        //         event(new ActivityCompleted($completedAct, $teacher));
+        //     }
+        // }
 
         \Log::info("Activities marked as completed: $updatedCount");
 
@@ -428,21 +428,21 @@ class ActivityController extends Controller
             'current_time'   => $now->toDateTimeString(),
         ]);
 
-        // AUTOMATIC NOTIFICATION for Teachers:
-        // For each ongoing activity, dispatch an ActivityStarted event for the teacher if one hasn't been sent.
-        foreach ($ongoingActivities as $activity) {
-            // Retrieve the teacher for this activity.
-            $teacher = \App\Models\Teacher::find($activity->teacherID);
-            if ($teacher) {
-                $exists = $teacher->notifications()
-                    ->where('type', 'Activity Started')
-                    ->whereJsonContains('data', ['activity_id' => $activity->actID])
-                    ->exists();
-                if (!$exists) {
-                    event(new ActivityStarted($activity, $teacher));
-                }
-            }
-        }
+        // // AUTOMATIC NOTIFICATION for Teachers:
+        // // For each ongoing activity, dispatch an ActivityStarted event for the teacher if one hasn't been sent.
+        // foreach ($ongoingActivities as $activity) {
+        //     // Retrieve the teacher for this activity.
+        //     $teacher = \App\Models\Teacher::find($activity->teacherID);
+        //     if ($teacher) {
+        //         $exists = $teacher->notifications()
+        //             ->where('type', 'Activity Started')
+        //             ->whereJsonContains('data', ['activity_id' => $activity->actID])
+        //             ->exists();
+        //         if (!$exists) {
+        //             event(new ActivityStarted($activity, $teacher));
+        //         }
+        //     }
+        // }
 
         // Now call attachScores on each set of activities before returning them
         $upcomingActivities  = $this->attachScores($upcomingActivities);
@@ -465,7 +465,7 @@ class ActivityController extends Controller
         ]);
     }
 
-        /**
+    /**
      * Helper to attach classAvgScore and highestScore to each activity
      */
     private function attachScores($activities)
