@@ -10,7 +10,6 @@ use App\Http\Controllers\Api\ActivityProgressController; // NEW: Controller for 
 use App\Http\Controllers\Api\ItemController; // Renamed from QuestionController if applicable
 use App\Http\Controllers\Api\ItemTypeController;
 use App\Http\Controllers\Api\ProgrammingLanguageController;
-use App\Http\Controllers\Api\AssessmentController;
 use App\Http\Controllers\Api\BulletinController;
 use App\Http\Controllers\Api\ConcernController;
 
@@ -169,17 +168,6 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::get('/class/{classID}/bulletin', [BulletinController::class, 'index']); // Get posts by class
         Route::post('/bulletin', [BulletinController::class, 'store']); // Create a new post
         Route::delete('/bulletin/{id}', [BulletinController::class, 'destroy']); // Delete a post
-    });
-
-    // -------------------------------
-    // Assessment Routes
-    // -------------------------------
-    Route::controller(AssessmentController::class)->group(function () {
-        Route::get('/assessments', 'index');
-        Route::post('/assessments', 'store');
-        Route::get('/assessments/{id}', 'show');
-        Route::put('/assessments/{id}', 'update');
-        Route::delete('/assessments/{id}', 'destroy');
     });
 
     // -------------------------------

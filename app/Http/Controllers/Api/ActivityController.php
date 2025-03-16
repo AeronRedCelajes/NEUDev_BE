@@ -776,17 +776,16 @@ class ActivityController extends Controller
             return response()->json(['message' => 'Activity not found'], 404);
         }
     
-        $items = $activity->items->map(function ($ai) {
+        $items = $activity->items->map(function ($ai) use ($activity) {
             $item = $ai->item;
             if (!$item) {
                 \Log::error("Item not found for activity item ID: {$ai->id}");
                 return null;
             }
     
-            // Return testCaseID so the front-end can match results
             $testCases = $item->testCases->map(function ($tc) {
                 return [
-                    'testCaseID'     => $tc->testCaseID, // <-- add this line
+                    'testCaseID'     => $tc->testCaseID,
                     'inputData'      => $tc->inputData,
                     'expectedOutput' => $tc->expectedOutput,
                     'testCasePoints' => $tc->testCasePoints,
@@ -794,15 +793,23 @@ class ActivityController extends Controller
                 ];
             });
     
+            // ←--- Add calls to your helper methods
+            $avgScore = $this->calculateAverageScore($item->itemID, $activity->actID);
+            $avgTime  = $this->calculateAverageTimeSpent($item->itemID, $activity->actID);
+    
             return [
-                'itemID'       => $item->itemID,
-                'itemName'     => $item->itemName ?? 'Unknown',
-                'itemDesc'     => $item->itemDesc ?? '',
-                'itemType'     => $ai->itemType->itemTypeName ?? 'N/A',
-                'testCases'    => $testCases,
-                'testCaseTotalPoints' => $item->testCases->sum('testCasePoints'),
-                'actItemPoints'=> $ai->actItemPoints,
-                // etc. any other fields
+                'itemID'             => $item->itemID,
+                'itemName'           => $item->itemName ?? '-',
+                'itemDifficulty'     => $item->itemDifficulty ?? '-',
+                'itemDesc'           => $item->itemDesc ?? '-',
+                'itemType'           => $ai->itemType->itemTypeName ?? '-',
+                'testCases'          => $testCases,
+                'testCaseTotalPoints'=> $item->testCases->sum('testCasePoints'),
+                'actItemPoints'      => $ai->actItemPoints,
+                'avgStudentScore'    => $avgScore,              // added
+                'avgStudentTimeSpent'=> $avgTime !== '-'
+                    ? $avgTime 
+                    : '-',                                      // or just $avgTime
             ];
         })->filter();
     
@@ -812,9 +819,10 @@ class ActivityController extends Controller
             'maxPoints'        => $activity->maxPoints,
             'actDuration'      => $activity->actDuration,
             'finalScorePolicy' => $activity->finalScorePolicy,
-            'items'            => $items->values(), // ensure it's an array
+            'items'            => $items->values(),
         ]);
     }
+    
     
 
     /**
