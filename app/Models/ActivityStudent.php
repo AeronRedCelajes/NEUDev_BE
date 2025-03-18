@@ -17,7 +17,8 @@ class ActivityStudent extends Model
         'studentID',
         'attemptsTaken',
         'finalScore',
-        'finalTimeSpent'  // NEW: Overall time spent (in seconds) for the activity.
+        'finalTimeSpent',  // NEW: Overall time spent (in seconds) for the activity.
+        'rank'
     ];
 
     public $timestamps = true;

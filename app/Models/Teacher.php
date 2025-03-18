@@ -21,7 +21,6 @@ class Teacher extends Authenticatable
 		'lastname',
 		'email',
 		'password',
-		'lastToken',
 		'profileImage',
         'coverImage'
 	];
@@ -41,6 +40,11 @@ class Teacher extends Authenticatable
 	public function classes()
 	{
 		return $this->hasMany(Classroom::class, 'teacherID', 'teacherID');
+	}
+
+	public function notifications()
+	{
+		return $this->morphMany(Notification::class, 'notifiable');
 	}
 	
 }

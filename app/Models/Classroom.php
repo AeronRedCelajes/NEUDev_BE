@@ -9,20 +9,25 @@ class Classroom extends Model
 {
     use HasFactory;
 
-    // Change the table name to "classes" to match Laravel conventions
+    // Define the table and primary key
     protected $table = 'classes';
     protected $primaryKey = 'classID';
     public $timestamps = true;
 
     // Disable auto-incrementing since we're using a custom key
     public $incrementing = false;
-    // Set the key type as integer (or string if you prefer)
     protected $keyType = 'integer';
 
     protected $fillable = [
         'className',
         'classSection',
         'teacherID',
+        'classCoverImage', // This stores only the relative path (e.g., "class_covers/filename.jpg")
+        'activeClass',
+    ];
+
+    protected $casts = [
+        'activeClass' => 'boolean',
     ];
 
     /**

@@ -52,9 +52,9 @@ class AuthController extends Controller
         ]);
 
         $token = $user->createToken('auth_token')->plainTextToken;
-        // Save the new token to enforce single-session login
-        $user->lastToken = $token;
-        $user->save();
+        // // Save the new token to enforce single-session login
+        // $user->lastToken = $token;
+        // $user->save();
 
         return response()->json([
             'message'      => 'Student registered successfully',
@@ -95,9 +95,9 @@ class AuthController extends Controller
         ]);
 
         $token = $user->createToken('auth_token')->plainTextToken;
-        // Save the new token to enforce single-session login
-        $user->lastToken = $token;
-        $user->save();
+        // // Save the new token to enforce single-session login
+        // $user->lastToken = $token;
+        // $user->save();
 
         return response()->json([
             'message'      => 'Teacher registered successfully',
@@ -145,11 +145,11 @@ class AuthController extends Controller
         }
     
         try {
-            // Always generate a new token and revoke previous ones
-            $user->tokens()->delete();
+            // // Always generate a new token and revoke previous ones
+            // $user->tokens()->delete();
             $token = $user->createToken('auth_token')->plainTextToken;
-            $user->lastToken = $token;
-            $user->save();
+            // $user->lastToken = $token;
+            // $user->save();
         } catch (\Exception $e) {
             \Log::error('Token Creation Error:', ['email' => $request->email, 'error' => $e->getMessage()]);
             return response()->json([
@@ -175,13 +175,11 @@ class AuthController extends Controller
     }    
     
     // Logout Method
-    public function logout()
+    public function logout(Request $request)
     {
-        $user = Auth::user();
-        $user->tokens()->delete();
-        $user->lastToken = null;  // Clear the stored token
-        $user->save();
-
+        // Delete only the token used for the current request
+        $request->user()->currentAccessToken()->delete();
+        
         return response()->json([
             'message' => 'Logout successful',
         ], 200);

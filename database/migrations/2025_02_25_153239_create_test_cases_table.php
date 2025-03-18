@@ -13,7 +13,7 @@ return new class extends Migration {
             $table->text('inputData')->nullable();
             $table->text('expectedOutput');
             
-            $table->integer('testCasePoints');
+            $table->float('testCasePoints');
             
             // NEW: Hide from students if true
             $table->boolean('isHidden')->default(false);

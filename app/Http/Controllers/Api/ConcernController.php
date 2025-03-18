@@ -5,6 +5,8 @@ namespace App\Http\Controllers\Api;
 use App\Http\Controllers\Controller;
 use Illuminate\Http\Request;
 use App\Models\Concern;
+use App\Models\Teacher;
+use App\Events\ConcernPosted;
 use Illuminate\Support\Facades\DB;
 
 class ConcernController extends Controller
@@ -44,7 +46,7 @@ class ConcernController extends Controller
         $user = $request->user();
 
         // Ensure only a student can post a concern
-        if ($user instanceof \App\Models\Teacher) {
+        if ($user instanceof Teacher) {
             return response()->json(['message' => 'Only students can post concerns'], 403);
         }
 
@@ -68,6 +70,12 @@ class ConcernController extends Controller
 
         $concern = Concern::create($validatedData);
 
+        // Now notify the teacher
+        $teacher = Teacher::find($validatedData['teacherID']);
+        if ($teacher) {
+            event(new ConcernPosted($concern, $teacher));
+        }
+
         return response()->json([
             'message' => 'Concern posted successfully!',
             'concern' => $concern
@@ -90,7 +98,7 @@ class ConcernController extends Controller
 
         // Teacher updating the reply
         if ($request->has('reply')) {
-            if (!($user instanceof \App\Models\Teacher)) {
+            if (!($user instanceof Teacher)) {
                 return response()->json(['message' => 'Only teachers can update replies'], 403);
             }
             if ($user->teacherID != $concern->teacherID) {
@@ -149,10 +157,10 @@ class ConcernController extends Controller
             if ($user->studentID != $concern->studentID) {
                 return response()->json(['message' => 'Unauthorized: This is not your concern'], 403);
             }
-            if ($concern->reply !== null) {
-                return response()->json(['message' => 'Cannot delete concern after a reply has been made'], 403);
-            }
-        } elseif ($user instanceof \App\Models\Teacher) {
+            // if ($concern->reply !== null) {
+            //     return response()->json(['message' => 'Cannot delete concern after a reply has been made'], 403);
+            // }
+        } elseif ($user instanceof Teacher) {
             if ($user->teacherID != $concern->teacherID) {
                 return response()->json(['message' => 'Unauthorized: You are not assigned to this concern'], 403);
             }

@@ -66,7 +66,7 @@ class ItemController extends Controller
             'itemName'           => 'required|string|max:255', // was questionName
             'itemDesc'           => 'required|string',           // was questionDesc
             'itemDifficulty'     => 'required|in:Beginner,Intermediate,Advanced', // was questionDifficulty
-            'itemPoints'         => 'required|integer|min:1',     // was questionPoints
+            'itemPoints'         => 'required|numeric|min:1',     // was questionPoints
         ];
 
         // Enforce test case rules only for Console App.
@@ -74,7 +74,7 @@ class ItemController extends Controller
             $rules['testCases'] = 'required|array';
             $rules['testCases.*.inputData'] = 'nullable|string';
             $rules['testCases.*.expectedOutput'] = 'required|string';
-            $rules['testCases.*.testCasePoints'] = 'required|integer|min:0';
+            $rules['testCases.*.testCasePoints'] = 'required|numeric|min:0';
             $rules['testCases.*.isHidden'] = 'sometimes|boolean';
         } else {
             $rules['testCases'] = 'nullable|array';
@@ -172,7 +172,7 @@ class ItemController extends Controller
             'itemName'           => 'required|string|max:255',
             'itemDesc'           => 'required|string',
             'itemDifficulty'     => 'required|in:Beginner,Intermediate,Advanced',
-            'itemPoints'         => 'required|integer|min:1',
+            'itemPoints'         => 'required|numeric|min:1',
         ];
     
         // Enforce test case rules only for Console App.
@@ -180,7 +180,7 @@ class ItemController extends Controller
             $rules['testCases'] = 'required|array';
             $rules['testCases.*.inputData'] = 'nullable|string';
             $rules['testCases.*.expectedOutput'] = 'required|string';
-            $rules['testCases.*.testCasePoints'] = 'required|integer|min:0';
+            $rules['testCases.*.testCasePoints'] = 'required|numeric|min:0';
             $rules['testCases.*.isHidden'] = 'sometimes|boolean';
         } else {
             $rules['testCases'] = 'nullable|array';
