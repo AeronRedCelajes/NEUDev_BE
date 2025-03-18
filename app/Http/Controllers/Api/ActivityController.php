@@ -392,7 +392,7 @@ class ActivityController extends Controller
                     'actID'        => $act->actID,
                     'actTitle'     => $act->actTitle,
                     'maxPoints'    => $act->maxPoints,
-                    'overallScore' => $pivot ? $finalScore : 'Not taken yet',
+                    'overallScore' => $pivot ? $finalScore : 'N/A',
                 ];
             }
     

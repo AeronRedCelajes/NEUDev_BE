@@ -7,6 +7,7 @@ use Illuminate\Http\Request;
 use App\Models\Classroom;
 use App\Models\Student;
 use App\Models\Teacher;
+use App\Models\Activity;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Storage;
@@ -58,7 +59,7 @@ class ClassroomController extends Controller
         ]);
     
         $teacher = Auth::user();
-        if (!$teacher || !$teacher instanceof \App\Models\Teacher) {
+        if (!$teacher || !$teacher instanceof Teacher) {
             return response()->json(['message' => 'Unauthorized'], 403);
         }
     
@@ -120,7 +121,7 @@ class ClassroomController extends Controller
     public function destroy($id)
     {
         $teacher = Auth::user();
-        if (!$teacher || !$teacher instanceof \App\Models\Teacher) {
+        if (!$teacher || !$teacher instanceof Teacher) {
             return response()->json(['message' => 'Unauthorized'], 403);
         }
 
@@ -142,7 +143,7 @@ class ClassroomController extends Controller
     public function update(Request $request, $id)
     {
         $teacher = Auth::user();
-        if (!$teacher || !$teacher instanceof \App\Models\Teacher) {
+        if (!$teacher || !$teacher instanceof Teacher) {
             return response()->json(['message' => 'Unauthorized'], 403);
         }
     
@@ -312,7 +313,7 @@ class ClassroomController extends Controller
     {
         // 1) Verify teacher
         $teacher = Auth::user();
-        if (!$teacher || !$teacher instanceof \App\Models\Teacher) {
+        if (!$teacher || !$teacher instanceof Teacher) {
             return response()->json(['error' => 'Unauthorized'], 403);
         }
 
@@ -335,7 +336,7 @@ class ClassroomController extends Controller
             ->get();
 
         // 4) Get all activities in this class
-        $activities = \App\Models\Activity::where('classID', $classID)->get();
+        $activities = Activity::where('classID', $classID)->get();
 
         // Compute the total possible points for the class
         $totalMaxPoints = $activities->sum('maxPoints');
