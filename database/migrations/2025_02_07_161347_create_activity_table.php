@@ -23,7 +23,7 @@ return new class extends Migration {
             $table->integer('actAttempts');
             $table->dateTime('openDate');
             $table->dateTime('closeDate');
-            $table->integer('maxPoints')->default(100);
+            $table->float('maxPoints');
             $table->float('classAvgScore')->nullable();
             $table->enum('finalScorePolicy', ['last_attempt', 'highest_score'])
             ->default('last_attempt');
@@ -55,7 +55,7 @@ return new class extends Migration {
             $table->unsignedBigInteger('actID');
             $table->unsignedBigInteger('itemID');     // was "questionID"
             $table->unsignedBigInteger('itemTypeID'); // same reference as items
-            $table->integer('actItemPoints');
+            $table->float('actItemPoints');
 
             // Foreign Key Constraints
             $table->foreign('actID')

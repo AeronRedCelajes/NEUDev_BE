@@ -7,11 +7,15 @@ use Illuminate\Http\Request;
 use App\Models\Activity;
 use App\Models\ActivitySubmission;
 use App\Models\ActivityItem;
+use App\Events\ActivityStarted;
+use App\Events\DeadlineChanged;
+use App\Events\ActivityCompleted;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
 
 class ActivityController extends Controller
 {
+
     ///////////////////////////////////////////////////
     // FUNCTIONS FOR CLASS MANAGEMENT PAGE VIA ACTIVITY
     ///////////////////////////////////////////////////
@@ -57,6 +61,18 @@ class ActivityController extends Controller
             ->orderBy('closeDate', 'desc')
             ->get();
 
+
+        // AUTOMATIC NOTIFICATION: For each ongoing activity, dispatch an ActivityStarted event 
+        // for the student if one hasn't already been sent.
+        foreach ($ongoingActivities as $activity) {
+            $exists = $student->notifications()
+                ->where('type', 'Activity Started')
+                ->whereJsonContains('data', ['activity_id' => $activity->actID])
+                ->exists();
+            if (!$exists) {
+                event(new ActivityStarted($activity, $student));
+            }
+        }
         // Attach student-specific details (Rank, Score, Duration, etc.)
         $upcomingActivities  = $this->attachStudentDetails($upcomingActivities, $student);
         $ongoingActivities   = $this->attachStudentDetails($ongoingActivities, $student);
@@ -89,50 +105,40 @@ class ActivityController extends Controller
     private function attachStudentDetails($activities, $student)
     {
         return $activities->map(function ($activity) use ($student) {
-            // Retrieve overall attempt data for this student from the pivot table.
+            // Retrieve the pivot record for this student and activity.
             $attemptData = DB::table('activity_student')
                 ->where('actID', $activity->actID)
                 ->where('studentID', $student->studentID)
                 ->first();
-    
-            // Use the finalScore stored in the pivot as the overall score.
+
+            // Use the pivot's finalScore and finalTimeSpent if available.
             $overallScore = $attemptData ? $attemptData->finalScore : 0;
+            $overallTime = $attemptData ? $attemptData->finalTimeSpent : 0;
             $maxPoints = $activity->maxPoints ?: 1;
-    
             $scorePercentage = ($maxPoints > 0)
                 ? round(($overallScore / $maxPoints) * 100, 2)
                 : null;
-    
-            // Sum overall time from the submissions.
-            $submissionSummary = ActivitySubmission::where('actID', $activity->actID)
-                ->where('studentID', $student->studentID)
-                ->select(DB::raw('SUM(timeSpent) as totalTime'))
-                ->first();
-            $overallTime = $submissionSummary ? $submissionSummary->totalTime : 0;
+
+            // Format overallTime using the helper.
             $formattedTime = $overallTime ? $this->formatSecondsToHMS($overallTime) : '-';
-    
-            // Retrieve attemptsTaken from the pivot.
-            $attemptsTaken = DB::table('activity_student')
+
+            // Also retrieve the number of attempts from the pivot.
+            $attemptsTaken = $attemptData ? $attemptData->attemptsTaken : 0;
+
+            // Calculate rank by comparing with all pivot records for the same activity.
+            $allAttempts = DB::table('activity_student')
                 ->where('actID', $activity->actID)
-                ->where('studentID', $student->studentID)
-                ->value('attemptsTaken');
-    
-            // Calculate rank by comparing the student's finalScore and finalTimeSpent with all attempts.
+                ->orderByDesc('finalScore')
+                ->orderBy('finalTimeSpent')
+                ->get();
             $rank = null;
-            if ($attemptData) {
-                $allAttempts = DB::table('activity_student')
-                    ->where('actID', $activity->actID)
-                    ->orderByDesc('finalScore')
-                    ->orderBy('finalTimeSpent')
-                    ->get();
-                foreach ($allAttempts as $index => $record) {
-                    if ($record->studentID == $student->studentID) {
-                        $rank = $index + 1;
-                        break;
-                    }
+            foreach ($allAttempts as $index => $record) {
+                if ($record->studentID == $student->studentID) {
+                    $rank = $index + 1;
+                    break;
                 }
             }
-    
+
             return [
                 'actID'               => $activity->actID,
                 'actTitle'            => $activity->actTitle,
@@ -153,15 +159,14 @@ class ActivityController extends Controller
                 'maxPoints'          => $activity->maxPoints,
                 'finalScorePolicy'   => $activity->finalScorePolicy,
                 'scorePercentage'    => $scorePercentage,
-                'attemptsTaken'      => $attemptsTaken ? $attemptsTaken : 0,
+                'attemptsTaken'      => $attemptsTaken,
                 'studentTimeSpent'   => $formattedTime,
             ];
         });
     }
-    
 
     /**
-     * Helper: Format seconds into HH:MM:SS.
+     * Private helper: Format seconds into HH:MM:SS.
      */
     private function formatSecondsToHMS($seconds)
     {
@@ -172,17 +177,76 @@ class ActivityController extends Controller
     }
 
     /**
+     * Recalculate final results (finalScore and finalTimeSpent) for each student's pivot record.
+     * This should be called when the final score policy changes.
+     * (It is implemented as a private helper method.)
+     */
+    private function recalcFinalResults($actID)
+    {
+        // Get the activity to read its current finalScorePolicy.
+        $activity = Activity::find($actID);
+        if (!$activity) {
+            return;
+        }
+    
+        // Get all pivot records for this activity.
+        $pivots = DB::table('activity_student')->where('actID', $actID)->get();
+    
+        foreach ($pivots as $pivot) {
+            $studentID = $pivot->studentID;
+            // Get all attempt summaries for this student.
+            $summaries = ActivitySubmission::select(
+                    'studentID',
+                    'attemptNo',
+                    DB::raw('SUM(score) as totalScore'),
+                    DB::raw('SUM(itemTimeSpent) as totalTimeSpent')
+                )
+                ->where('actID', $actID)
+                ->where('studentID', $studentID)
+                ->groupBy('studentID', 'attemptNo')
+                ->get();
+    
+            if ($activity->finalScorePolicy === 'highest_score') {
+                // Pick the attempt with the highest totalScore (and if tied, lowest totalTimeSpent).
+                $sorted = $summaries->sort(function ($a, $b) {
+                    if ($a->totalScore == $b->totalScore) {
+                        return $a->totalTimeSpent <=> $b->totalTimeSpent;
+                    }
+                    return $b->totalScore <=> $a->totalScore;
+                })->values();
+                $final = $sorted->first();
+            } else {
+                // For last_attempt, pick the attempt with the highest attemptNo.
+                $maxAttempt = $summaries->max('attemptNo');
+                $final = $summaries->firstWhere('attemptNo', $maxAttempt);
+            }
+    
+            // Update the pivot record for this student.
+            if ($final) {
+                DB::table('activity_student')
+                    ->where('actID', $actID)
+                    ->where('studentID', $studentID)
+                    ->update([
+                        'finalScore'     => $final->totalScore,
+                        'finalTimeSpent' => $final->totalTimeSpent,
+                        'updated_at'     => now()
+                    ]);
+            }
+        }
+    }
+
+    /**
      * Create an activity (Only for Teachers)
      */
     public function store(Request $request)
     {
         try {
             $teacher = Auth::user();
-    
+
             if (!$teacher || !$teacher instanceof \App\Models\Teacher) {
                 return response()->json(['message' => 'Unauthorized'], 403);
             }
-    
+
             // Validate input.
             $validator = \Validator::make($request->all(), [
                 'progLangIDs'           => 'required|array',
@@ -197,22 +261,21 @@ class ActivityController extends Controller
                 'actAttempts'           => 'required|integer|min:0',
                 'openDate'              => 'required|date',
                 'closeDate'             => 'required|date|after:openDate',
-                'maxPoints'             => 'required|integer|min:1',
+                'maxPoints'             => 'required|numeric|min:1',
                 'items'                 => 'required|array|min:1',
                 'items.*.itemID'        => 'required|exists:items,itemID',
                 'items.*.itemTypeID'    => 'required|exists:item_types,itemTypeID',
-                'items.*.actItemPoints' => 'required|integer|min:1',
-                // New field: must be one of the allowed values.
+                'items.*.actItemPoints' => 'required|numeric|min:1',
                 'finalScorePolicy'      => 'required|in:last_attempt,highest_score',
             ]);
-    
+
             if ($validator->fails()) {
                 return response()->json([
                     'message' => 'Validation failed.',
                     'errors'  => $validator->errors(),
                 ], 422);
             }
-    
+
             // Create the activity.
             $activity = Activity::create([
                 'classID'          => $request->classID,
@@ -223,16 +286,15 @@ class ActivityController extends Controller
                 'actDuration'      => $request->actDuration,
                 'openDate'         => $request->openDate,
                 'closeDate'        => $request->closeDate,
-                'maxPoints'        => $request->maxPoints, // temporary; will recalc
+                'maxPoints'        => $request->maxPoints,
                 'actAttempts'      => $request->actAttempts,
                 'classAvgScore'    => null,
-                // Save the final score policy as provided.
                 'finalScorePolicy' => $request->finalScorePolicy,
             ]);
-    
+
             // Attach programming languages.
             $activity->programmingLanguages()->attach($request->progLangIDs);
-    
+
             // Attach selected items with points.
             foreach ($request->items as $item) {
                 ActivityItem::create([
@@ -242,15 +304,16 @@ class ActivityController extends Controller
                     'actItemPoints' => $item['actItemPoints'],
                 ]);
             }
-    
+
             // Automatically calculate the total points from the provided items.
             $totalPoints = array_sum(array_column($request->items, 'actItemPoints'));
             $activity->update(['maxPoints' => $totalPoints]);
-    
+
             return response()->json([
                 'message'  => 'Activity created successfully',
                 'activity' => $activity->load([
                     'items.item',
+                    'items.item.programmingLanguages',
                     'items.itemType',
                     'programmingLanguages'
                 ]),
@@ -262,7 +325,6 @@ class ActivityController extends Controller
             ], 500);
         }
     }
-    
 
     /**
      * Get a specific activity by ID.
@@ -290,6 +352,12 @@ class ActivityController extends Controller
     {
         $now = now();
 
+        // Before calling update(), fetch the activities that are about to be marked as completed
+        $activitiesToComplete = Activity::where('classID', $classID)
+            ->where('closeDate', '<', $now)
+            ->whereNull('completed_at')
+            ->get();
+
         // Mark activities as completed if closeDate has passed.
         $updatedCount = Activity::where('classID', $classID)
             ->where('closeDate', '<', $now)
@@ -298,6 +366,14 @@ class ActivityController extends Controller
                 'completed_at' => $now,
                 'updated_at'   => $now,
             ]);
+
+        // Dispatch ActivityCompleted event for each newly completed activity
+        foreach ($activitiesToComplete as $completedAct) {
+            $teacher = \App\Models\Teacher::find($completedAct->teacherID);
+            if ($teacher) {
+                event(new ActivityCompleted($completedAct, $teacher));
+            }
+        }
 
         \Log::info("Activities marked as completed: $updatedCount");
 
@@ -352,6 +428,27 @@ class ActivityController extends Controller
             'current_time'   => $now->toDateTimeString(),
         ]);
 
+        // AUTOMATIC NOTIFICATION for Teachers:
+        // For each ongoing activity, dispatch an ActivityStarted event for the teacher if one hasn't been sent.
+        foreach ($ongoingActivities as $activity) {
+            // Retrieve the teacher for this activity.
+            $teacher = \App\Models\Teacher::find($activity->teacherID);
+            if ($teacher) {
+                $exists = $teacher->notifications()
+                    ->where('type', 'Activity Started')
+                    ->whereJsonContains('data', ['activity_id' => $activity->actID])
+                    ->exists();
+                if (!$exists) {
+                    event(new ActivityStarted($activity, $teacher));
+                }
+            }
+        }
+
+        // Now call attachScores on each set of activities before returning them
+        $upcomingActivities  = $this->attachScores($upcomingActivities);
+        $ongoingActivities   = $this->attachScores($ongoingActivities);
+        $completedActivities = $this->attachScores($completedActivities);
+
         if ($upcomingActivities->isEmpty() && $ongoingActivities->isEmpty() && $completedActivities->isEmpty()) {
             return response()->json([
                 'message' => 'No activities found.',
@@ -368,26 +465,73 @@ class ActivityController extends Controller
         ]);
     }
 
+        /**
+     * Helper to attach classAvgScore and highestScore to each activity
+     */
+    private function attachScores($activities)
+    {
+        return $activities->map(function ($act) {
+            // Fetch numeric averages
+            $rawAvg = DB::table('activity_student')
+                ->where('actID', $act->actID)
+                ->avg('finalScore');
+    
+            $rawMax = DB::table('activity_student')
+                ->where('actID', $act->actID)
+                ->max('finalScore');
+    
+            // Format them using our helper
+            $act->classAvgScore = $this->formatScore($rawAvg);
+            $act->highestScore  = $this->formatScore($rawMax);
+    
+            return $act;
+        });
+    }
+
+    /**
+     * Format a numeric value with up to 2 decimal places, 
+     * but if it's a whole number (e.g., 145.00), show just '145'.
+     */
+    private function formatScore($value)
+    {
+        // If it's null or invalid, return '-'
+        if ($value === null) {
+            return '-';
+        }
+
+        // Round to 2 decimals
+        $rounded = round($value, 2);
+
+        // If there's no decimal part, display as integer (e.g., '145')
+        if (fmod($rounded, 1.0) === 0.0) {
+            return (int) $rounded;
+        }
+
+        // Otherwise, format with 2 decimal places (e.g., '145.12')
+        return number_format($rounded, 2);
+    }
+
     /**
      * Update an existing activity (Only for Teachers)
+     * Also, when updating the finalScorePolicy, recalc final results.
      */
     public function update(Request $request, $actID)
     {
         try {
             $teacher = Auth::user();
-    
+
             if (!$teacher || !$teacher instanceof \App\Models\Teacher) {
                 return response()->json(['message' => 'Unauthorized'], 403);
             }
-    
+
             $activity = Activity::where('actID', $actID)
                 ->where('teacherID', $teacher->teacherID)
                 ->first();
-    
+
             if (!$activity) {
                 return response()->json(['message' => 'Activity not found or unauthorized'], 404);
             }
-    
+
             // Validate input
             $validator = \Validator::make($request->all(), [
                 'progLangIDs'           => 'sometimes|required|array',
@@ -403,75 +547,77 @@ class ActivityController extends Controller
                 'actAttempts'           => 'sometimes|required|integer|min:0',
                 'openDate'              => 'sometimes|required|date',
                 'closeDate'             => 'sometimes|required|date|after:openDate',
-                'maxPoints'             => 'sometimes|required|integer|min:1',
+                'maxPoints'             => 'sometimes|required|numeric|min:1',
                 'items'                 => 'sometimes|required|array|min:1',
                 'items.*.itemID'        => 'required_with:items|exists:items,itemID',
                 'items.*.itemTypeID'    => 'required_with:items|exists:item_types,itemTypeID',
-                'items.*.actItemPoints' => 'required_with:items|integer|min:1',
-                // Optional finalScorePolicy field (if provided, must be valid)
+                'items.*.actItemPoints' => 'required_with:items|numeric|min:1',
                 'finalScorePolicy'      => 'sometimes|required|in:last_attempt,highest_score',
             ]);
-    
+
             if ($validator->fails()) {
                 return response()->json([
                     'message' => 'Validation failed.',
                     'errors'  => $validator->errors(),
                 ], 422);
             }
-    
+
             // If a new closeDate is provided and is in the future, clear completed_at.
             if ($request->has('closeDate') && \Carbon\Carbon::parse($request->closeDate)->gt(now())) {
                 $activity->completed_at = null;
                 $activity->updated_at   = now();
                 $activity->save();
             }
-    
-            // Capture the current actDuration before updating it.
-            $oldDuration = $activity->actDuration;
-    
-            // Update activity details.
+
             $activity->update($request->only([
                 'actTitle', 'actDesc', 'actDifficulty', 'actDuration',
                 'actAttempts', 'openDate', 'closeDate', 'maxPoints'
             ]));
-    
-            // Update finalScorePolicy if provided.
+
+            if ($request->has('closeDate')) {
+                // The teacher just changed the closeDate
+                // Fetch all students enrolled in this class
+                $students = \DB::table('class_student')
+                    ->where('classID', $activity->classID)
+                    ->pluck('studentID');
+            
+                // For each student, dispatch the event
+                foreach ($students as $studentID) {
+                    $studentModel = \App\Models\Student::find($studentID);
+                    if ($studentModel) {
+                        event(new DeadlineChanged($activity, $studentModel));
+                    }
+                }
+            }
+
             if ($request->has('finalScorePolicy')) {
                 $activity->finalScorePolicy = $request->finalScorePolicy;
                 $activity->save();
             }
-    
-            // If actDuration is updated, recalculate the remaining time for all progress records.
+
             if ($request->has('actDuration')) {
-                // Convert the new actDuration (HH:MM:SS) to seconds.
                 list($hours, $minutes, $seconds) = explode(":", $request->actDuration);
                 $newDurationInSeconds = ($hours * 3600) + ($minutes * 60) + $seconds;
-    
-                // Update all progress records for this activity.
+
                 $progresses = \App\Models\ActivityProgress::where('actID', $activity->actID)->get();
                 foreach ($progresses as $progress) {
-                    // Calculate elapsed seconds since the last progress update.
                     $elapsed = time() - strtotime($progress->updated_at);
                     $newTimeRemaining = $newDurationInSeconds - $elapsed;
                     if ($newTimeRemaining < 0) {
                         $newTimeRemaining = 0;
                     }
-                    $progress->timeRemaining = $newTimeRemaining;
+                    $progress->draftTimeRemaining = $newTimeRemaining;
                     $progress->save();
                 }
             }
-    
-            // Sync programming languages if provided.
+
             if ($request->has('progLangIDs')) {
                 $activity->programmingLanguages()->sync($request->progLangIDs);
             }
-    
-            // Update items if provided.
+
             if ($request->has('items')) {
-                // Delete existing ActivityItem records.
                 ActivityItem::where('actID', $activity->actID)->delete();
-    
-                // Create new ActivityItem records.
+
                 foreach ($request->items as $item) {
                     ActivityItem::create([
                         'actID'         => $activity->actID,
@@ -480,17 +626,17 @@ class ActivityController extends Controller
                         'actItemPoints' => $item['actItemPoints'],
                     ]);
                 }
-    
-                // Recalculate total points.
+
                 $totalPoints = array_sum(array_column($request->items, 'actItemPoints'));
                 $activity->update(['maxPoints' => $totalPoints]);
-    
-                // Clear the test case results and draft score in the progress records
-                // so that any previous scores are removed if items/test cases have changed.
+
                 \App\Models\ActivityProgress::where('actID', $activity->actID)
-                ->update(['draftTestCaseResults' => null, 'draftScore' => null]);
+                    ->update(['draftTestCaseResults' => null, 'draftScore' => null]);
             }
-    
+
+            // Recalculate final results based on the current finalScorePolicy.
+            $this->recalcFinalResults($activity->actID);
+
             return response()->json([
                 'message'  => 'Activity updated successfully',
                 'activity' => $activity->load([
@@ -506,8 +652,7 @@ class ActivityController extends Controller
                 'error'   => $e->getMessage(),
             ], 500);
         }
-    }    
-
+    }
 
     /**
      * Delete an activity (Only for Teachers).
@@ -516,21 +661,21 @@ class ActivityController extends Controller
     {
         $teacher = Auth::user();
         \Log::info("Destroy activity request received", ['teacher_id' => $teacher ? $teacher->teacherID : null, 'actID' => $actID]);
-    
+
         if (!$teacher || !$teacher instanceof \App\Models\Teacher) {
             \Log::warning("Unauthorized delete attempt", ['actID' => $actID]);
             return response()->json(['message' => 'Unauthorized'], 403);
         }
-    
+
         $activity = Activity::where('actID', $actID)
             ->where('teacherID', $teacher->teacherID)
             ->first();
-    
+
         if (!$activity) {
             \Log::warning("Activity not found or unauthorized", ['teacher_id' => $teacher->teacherID, 'actID' => $actID]);
             return response()->json(['message' => 'Activity not found or unauthorized'], 404);
         }
-    
+
         try {
             $activity->delete();
             \Log::info("Activity deleted successfully", ['actID' => $actID]);
@@ -540,12 +685,11 @@ class ActivityController extends Controller
             return response()->json(['message' => 'Error while deleting the activity.', 'error' => $e->getMessage()], 500);
         }
     }
-    
 
     ///////////////////////////////////////////////////
     // FUNCTIONS FOR ACTIVITY MANAGEMENT PAGE FOR STUDENTS
     ///////////////////////////////////////////////////
-
+    
     public function showActivityItemsByStudent(Request $request, $actID)
     {
         $student = Auth::user();
@@ -553,7 +697,6 @@ class ActivityController extends Controller
             return response()->json(['message' => 'Unauthorized'], 403);
         }
 
-        // Load the activity with related items, test cases, item types, classroom, and allowed programming languages.
         $activity = Activity::with([
             'items.item.testCases',
             'items.itemType',
@@ -565,12 +708,10 @@ class ActivityController extends Controller
             return response()->json(['message' => 'Activity not found'], 404);
         }
 
-        // Retrieve the unified submission record for this student and activity.
         $submission = ActivitySubmission::where('actID', $activity->actID)
             ->where('studentID', $student->studentID)
             ->first();
 
-        // Map each activity item. (Test case details are still available from the items.)
         $items = $activity->items->map(function ($ai) use ($submission) {
             if (!$ai->item) {
                 \Log::error("Item not found for activity item ID: {$ai->id}");
@@ -593,153 +734,27 @@ class ActivityController extends Controller
                 'itemDesc'       => $ai->item->itemDesc ?? '',
                 'itemDifficulty' => $ai->item->itemDifficulty ?? 'N/A',
                 'itemType'       => $ai->itemType->itemTypeName ?? 'N/A',
-                'actItemPoints' => $ai->item->testCases->sum('testCasePoints'),
+                'actItemPoints'  => $ai->actItemPoints,
                 'testCaseTotalPoints' => $ai->item->testCases->sum('testCasePoints'),
                 'testCases'      => $testCases,
-                // Since we have a unified submission record:
                 'studentScore'   => $submission ? $submission->score : null,
-                'studentTimeSpent' => $submission && $submission->timeSpent !== null
-                    ? $this->formatSecondsToHMS($submission->timeSpent)
+                'studentTimeSpent' => $submission && $submission->itemTimeSpent !== null
+                    ? $this->formatSecondsToHMS($submission->itemTimeSpent)
                     : '-',
                 'submissionStatus' => $submission ? 'Submitted' : 'Not Attempted',
             ];
-        })->filter(); // Remove any null values
+        })->filter();
 
-        return response()->json([
-            'activityName'      => $activity->actTitle,
-            'actDesc'           => $activity->actDesc,
-            'maxPoints'         => $activity->maxPoints,
-            'actDuration'       => $activity->actDuration,
-            'closeDate'         => $activity->closeDate,
-            'actAttempts'       => $activity->actAttempts,
-            'attemptsTaken'     => ActivitySubmission::where('actID', $activity->actID)
-                                   ->where('studentID', $student->studentID)
-                                   ->count(),
-            'allowedLanguages'  => $activity->programmingLanguages->map(function ($lang) {
-                return [
-                    'progLangID'        => $lang->progLangID,
-                    'progLangName'      => $lang->progLangName,
-                    'progLangExtension' => $lang->progLangExtension,
-                ];
-            })->values(),
-            'items'             => $items,
-        ]);
-    }
-
-    public function showActivityLeaderboardByStudent($actID)
-    {
-        // Fetch the activity.
-        $activity = Activity::with('classroom')->find($actID);
-    
-        if (!$activity) {
-            return response()->json(['message' => 'Activity not found'], 404);
-        }
-    
-        // Get submissions joined with students. Include timeSpent for tie-breaker.
-        $submissions = ActivitySubmission::where('actID', $actID)
-            ->join('students', 'activity_submissions.studentID', '=', 'students.studentID')
-            ->select(
-                'students.studentID',
-                'students.firstname',
-                'students.lastname',
-                'students.program',
-                'activity_submissions.score',
-                'activity_submissions.timeSpent'
-            )
-            ->orderByDesc('activity_submissions.score')
-            ->orderBy('activity_submissions.timeSpent')
-            ->orderBy('students.lastname')
-            ->orderBy('students.firstname')
-            ->get();
-    
-        if ($submissions->isEmpty()) {
-            return response()->json([
-                'activityName' => $activity->actTitle,
-                'message'      => 'No students have submitted this activity yet.',
-                'leaderboard'  => []
-            ]);
-        }
-    
-        // Calculate rank based on the ordering.
-        $rankedSubmissions = $submissions->map(function ($submission, $index) {
-            return [
-                'studentName'  => strtoupper($submission->lastname) . ", " . $submission->firstname,
-                'program'      => $submission->program ?? 'N/A',
-                'averageScore' => $submission->score . '%',
-                'timeSpent'    => $submission->timeSpent,
-                'rank'         => ($index + 1)
-            ];
-        });
-    
-        return response()->json([
-            'activityName' => $activity->actTitle,
-            'leaderboard'  => $rankedSubmissions
-        ]);
-    }
-    
-
-    ///////////////////////////////////////////////////
-    // FUNCTIONS FOR ACTIVITY MANAGEMENT PAGE FOR TEACHERS
-    ///////////////////////////////////////////////////
-    public function showActivityItemsByTeacher($actID)
-    {
-        // Load the activity along with its relationships.
-        $activity = Activity::with([
-            'items.item.testCases', 
-            'items.item.programmingLanguages',
-            'items.itemType',
-            'classroom',
-            'programmingLanguages',
-        ])->find($actID);
-    
-        if (!$activity) {
-            return response()->json(['message' => 'Activity not found'], 404);
-        }
-        
-        // Force a refresh so that we get the latest pivot data and item details.
-        $activity->refresh();
-    
-        $items = $activity->items->map(function ($ai) use ($activity) {
-            // Optionally refresh the pivot record individually.
-            $ai->refresh();
-            
-            $item = $ai->item;
-    
-            // Map programming languages for each item.
-            $programmingLanguages = $item->programmingLanguages->map(function ($lang) {
-                return [
-                    'progLangID'   => $lang->progLangID,
-                    'progLangName' => $lang->progLangName,
-                ];
-            })->values()->all();
-    
-            return [
-                'itemID'                => $item->itemID,
-                'itemName'              => $item->itemName ?? 'Unknown',
-                'itemDesc'              => $item->itemDesc ?? '',
-                'itemDifficulty'        => $item->itemDifficulty ?? 'N/A',
-                'programming_languages' => $programmingLanguages,
-                'itemType'              => $ai->itemType->itemTypeName ?? 'N/A',
-                'testCases'             => $item->testCases->map(function ($tc) {
-                    return [
-                        'inputData'      => $tc->inputData,
-                        'expectedOutput' => $tc->expectedOutput,
-                        'testCasePoints' => $tc->testCasePoints,
-                        'isHidden'       => $tc->isHidden,
-                    ];
-                }),
-                'avgStudentScore'       => $this->calculateAverageScore($item->itemID, $activity->actID),
-                'avgStudentTimeSpent'   => $this->calculateAverageTimeSpent($item->itemID, $activity->actID),
-                // This pivot field should now reflect the updated value.
-                'actItemPoints'         => $ai->actItemPoints,
-            ];
-        });
-    
         return response()->json([
             'activityName'     => $activity->actTitle,
             'actDesc'          => $activity->actDesc,
             'maxPoints'        => $activity->maxPoints,
             'actDuration'      => $activity->actDuration,
+            'closeDate'        => $activity->closeDate,
+            'actAttempts'      => $activity->actAttempts,
+            'attemptsTaken'    => ActivitySubmission::where('actID', $activity->actID)
+                                   ->where('studentID', $student->studentID)
+                                   ->count(),
             'allowedLanguages' => $activity->programmingLanguages->map(function ($lang) {
                 return [
                     'progLangID'        => $lang->progLangID,
@@ -750,29 +765,216 @@ class ActivityController extends Controller
             'items'            => $items,
         ]);
     }
+
+    public function showActivityLeaderboardByStudent($actID)
+    {
+        $activity = Activity::with('classroom')->find($actID);
+
+        if (!$activity) {
+            return response()->json(['message' => 'Activity not found'], 404);
+        }
+
+        $submissions = DB::table('activity_student as astu')
+        ->join('students as s', 'astu.studentID', '=', 's.studentID')
+        ->select(
+            's.studentID',
+            's.firstname',
+            's.lastname',
+            's.program',
+            's.student_num',
+            's.profileImage',
+            'astu.finalScore',
+            'astu.finalTimeSpent'
+        )
+        ->where('astu.actID', $actID)
+        // Sort by finalScore desc, finalTimeSpent asc, etc.
+        ->orderByDesc('astu.finalScore')
+        ->orderBy('astu.finalTimeSpent')
+        ->orderBy('s.lastname')
+        ->orderBy('s.firstname')
+        ->get();
+
+        if ($submissions->isEmpty()) {
+            return response()->json([
+                'activityName' => $activity->actTitle,
+                'message'      => 'No students have submitted this activity yet.',
+                'leaderboard'  => []
+            ]);
+        }
+
+        $rankedSubmissions = $submissions->map(function ($submission, $index) {
+            $profileImage = $submission->profileImage 
+                ? asset('storage/' . $submission->profileImage) 
+                : null;
+
+            return [
+                'studentName'  => strtoupper($submission->lastname) . ", " . $submission->firstname,
+                'studentNum'   => $submission->student_num,
+                'program'      => $submission->program ?? 'N/A',
+                'score'        => $submission->finalScore,
+                'itemTimeSpent'    => $submission->finalTimeSpent,
+                'rank'         => ($index + 1),
+                'profileImage' => $profileImage
+            ];
+        });
+
+        return response()->json([
+            'activityName' => $activity->actTitle,
+            'leaderboard'  => $rankedSubmissions
+        ]);
+    }
+
+    public function showActivityItemsByTeacher($actID)
+    {
+        $activity = Activity::with([
+            'items.item.testCases',
+            'items.item.programmingLanguages',
+            'items.itemType',
+            'classroom',
+            'programmingLanguages',
+        ])->find($actID);
+    
+        if (!$activity) {
+            return response()->json(['message' => 'Activity not found'], 404);
+        }
+    
+        $items = $activity->items->map(function ($ai) use ($activity) {
+            $item = $ai->item;
+            if (!$item) {
+                \Log::error("Item not found for activity item ID: {$ai->id}");
+                return null;
+            }
+    
+            $testCases = $item->testCases->map(function ($tc) {
+                return [
+                    'testCaseID'     => $tc->testCaseID,
+                    'inputData'      => $tc->inputData,
+                    'expectedOutput' => $tc->expectedOutput,
+                    'testCasePoints' => $tc->testCasePoints,
+                    'isHidden'       => $tc->isHidden,
+                ];
+            });
+    
+            // ←--- Add calls to your helper methods
+            $avgScore = $this->calculateAverageScore($item->itemID, $activity->actID);
+            $avgTime  = $this->calculateAverageTimeSpent($item->itemID, $activity->actID);
+    
+            return [
+                'itemID'             => $item->itemID,
+                'itemName'           => $item->itemName ?? '-',
+                'itemDifficulty'     => $item->itemDifficulty ?? '-',
+                'itemDesc'           => $item->itemDesc ?? '-',
+                'itemType'           => $ai->itemType->itemTypeName ?? '-',
+                'testCases'          => $testCases,
+                'testCaseTotalPoints'=> $item->testCases->sum('testCasePoints'),
+                'actItemPoints'      => $ai->actItemPoints,
+                'avgStudentScore'    => $avgScore,              // added
+                'avgStudentTimeSpent'=> $avgTime !== '-'
+                    ? $avgTime 
+                    : '-',                                      // or just $avgTime
+            ];
+        })->filter();
+    
+        return response()->json([
+            'activityName'     => $activity->actTitle,
+            'actDesc'          => $activity->actDesc,
+            'maxPoints'        => $activity->maxPoints,
+            'actDuration'      => $activity->actDuration,
+            'finalScorePolicy' => $activity->finalScorePolicy,
+            'items'            => $items->values(),
+        ]);
+    }
     
     
+
     /**
      * Calculate the average student score for an activity item.
+     * Only include the submission that corresponds to each student’s final attempt.
      */
     private function calculateAverageScore($itemID, $actID)
     {
-        $avg = ActivitySubmission::where('actID', $actID)
-            ->where('itemID', $itemID)
-            ->avg('score');
-        return $avg !== null ? number_format(round($avg, 2), 2) : '-';
+        $activity = Activity::find($actID);
+        if (!$activity) {
+            return '-';
+        }
+    
+        if ($activity->finalScorePolicy === 'highest_score') {
+            // For each student, get the highest score for the given item.
+            $bestScores = \DB::table('activity_submissions as s')
+                ->select('s.studentID', \DB::raw('MAX(s.score) as bestScore'))
+                ->where('s.actID', $actID)
+                ->where('s.itemID', $itemID)
+                ->groupBy('s.studentID')
+                ->get();
+    
+            $avg = $bestScores->avg('bestScore');
+        } else {
+            // For last_attempt, use the submission where attemptNo equals the pivot's attemptsTaken.
+            $avg = \DB::table('activity_submissions as s')
+                ->join('activity_student as a', function ($join) use ($actID) {
+                    $join->on('s.studentID', '=', 'a.studentID')
+                         ->where('a.actID', '=', $actID);
+                })
+                ->where('s.actID', $actID)
+                ->where('s.itemID', $itemID)
+                ->whereColumn('s.attemptNo', 'a.attemptsTaken')
+                ->avg('s.score');
+        }
+    
+        // Use formatScore to ensure that a whole number (e.g., 50.00) is displayed as 50,
+        // while decimals (e.g., 50.16) are retained.
+        return $avg !== null ? $this->formatScore($avg) : '-';
     }
 
     /**
      * Calculate the average time spent by students on an activity item.
-     * Assumes timeSpent is stored as an integer (seconds), so we format the average to HH:MM:SS.
+     * Only include the submission corresponding to the final attempt.
      */
     private function calculateAverageTimeSpent($itemID, $actID)
     {
-        $avgSeconds = ActivitySubmission::where('actID', $actID)
-            ->where('itemID', $itemID)
-            ->avg('timeSpent');
-
+        $activity = Activity::find($actID);
+        if (!$activity) {
+            return '-';
+        }
+        
+        if ($activity->finalScorePolicy === 'highest_score') {
+            // Get each student's best score for the item.
+            $bestScores = \DB::table('activity_submissions as s')
+                ->select('s.studentID', \DB::raw('MAX(s.score) as bestScore'))
+                ->where('s.actID', $actID)
+                ->where('s.itemID', $itemID)
+                ->groupBy('s.studentID')
+                ->get();
+        
+            // For each student, get the corresponding itemTimeSpent from one row that has that best score.
+            $timeSpentValues = [];
+            foreach ($bestScores as $bs) {
+                $row = \DB::table('activity_submissions as s')
+                    ->select('s.itemTimeSpent')
+                    ->where('s.actID', $actID)
+                    ->where('s.itemID', $itemID)
+                    ->where('s.studentID', $bs->studentID)
+                    ->where('s.score', $bs->bestScore)
+                    ->first();
+                if ($row && isset($row->itemTimeSpent)) {
+                    $timeSpentValues[] = $row->itemTimeSpent;
+                }
+            }
+        
+            $avgSeconds = !empty($timeSpentValues) ? array_sum($timeSpentValues) / count($timeSpentValues) : null;
+        } else {
+            // For last_attempt policy.
+            $avgSeconds = \DB::table('activity_submissions as s')
+                ->join('activity_student as a', function ($join) use ($actID) {
+                    $join->on('s.studentID', '=', 'a.studentID')
+                         ->where('a.actID', '=', $actID);
+                })
+                ->where('s.actID', $actID)
+                ->where('s.itemID', $itemID)
+                ->whereColumn('s.attemptNo', 'a.attemptsTaken')
+                ->avg('s.itemTimeSpent');
+        }
+        
         return $avgSeconds !== null ? $this->formatSecondsToHMS(round($avgSeconds)) : '-';
     }
 
@@ -838,8 +1040,6 @@ class ActivityController extends Controller
             'leaderboard'  => $rankedSubmissions
         ]);
     }
-      
-    
 
     /**
      * Show the activity settings.
@@ -898,151 +1098,6 @@ class ActivityController extends Controller
         $activity->update($validatedData);
 
         return response()->json(['message' => 'Activity settings updated successfully.']);
-    }
-
-    ///////////////////////////////////////////////////
-    // NEW FUNCTION: Overall Student Score Across Activities
-    ///////////////////////////////////////////////////
-    public function getStudentOverallScore($classID)
-    {
-        $student = Auth::user();
-        if (!$student || !$student instanceof \App\Models\Student) {
-            return response()->json(['message' => 'Unauthorized'], 403);
-        }
-
-        // Get all activities in the given class.
-        $activities = Activity::where('classID', $classID)->get();
-
-        $totalScore = 0;
-        $totalMaxPoints = 0;
-
-        foreach ($activities as $activity) {
-            // Assume one final submission per activity per student.
-            $submission = ActivitySubmission::where('actID', $activity->actID)
-                ->where('studentID', $student->studentID)
-                ->orderBy('submitted_at', 'desc')
-                ->first();
-            if ($submission) {
-                $totalScore += $submission->score;
-            }
-            $totalMaxPoints += $activity->maxPoints;
-        }
-
-        $averagePercentage = $totalMaxPoints > 0
-            ? round(($totalScore / $totalMaxPoints) * 100, 2)
-            : 0;
-
-        return response()->json([
-            'totalScore'         => $totalScore,
-            'totalMaxPoints'     => $totalMaxPoints,
-            'averagePercentage'  => $averagePercentage,
-        ]);
-    }
-
-    ///////////////////////////////////////////////////
-    // ACTIVITY SUBMISSION FUNCTIONS
-    ///////////////////////////////////////////////////
-    public function showActivityItemsForReview(Request $request, $actID, $studentID, $submissionID = null)
-    {
-        // Ensure the user is an authenticated teacher.
-        $teacher = Auth::user();
-        if (!$teacher || !$teacher instanceof \App\Models\Teacher) {
-            return response()->json(['message' => 'Unauthorized'], 403);
-        }
-
-        // Load the activity with related items, test cases, item types, classroom, and allowed programming languages.
-        $activity = Activity::with([
-            'items.item.testCases',
-            'items.itemType',
-            'classroom',
-            'programmingLanguages',
-        ])->find($actID);
-
-        if (!$activity) {
-            return response()->json(['message' => 'Activity not found'], 404);
-        }
-
-        // Retrieve the submission record.
-        // If submissionID is provided, use it. Otherwise, get the latest submission.
-        if ($submissionID) {
-            $submission = ActivitySubmission::where('submissionID', $submissionID)
-                ->where('actID', $actID)
-                ->where('studentID', $studentID)
-                ->first();
-        } else {
-            $submission = ActivitySubmission::where('actID', $actID)
-                ->where('studentID', $studentID)
-                ->latest('submitted_at')
-                ->first();
-        }
-
-        // Use shared logic to build the assessment data.
-        $assessmentData = $this->buildAssessmentData($activity, $submission);
-
-        return response()->json([
-            'message'      => 'Submission details retrieved successfully.',
-            'activityName' => $activity->actTitle,
-            'assessment'   => $assessmentData,
-        ], 200);
-    }
-
-    /**
-     * Shared function that builds the assessment data.
-     * This is similar to the logic in showActivityItemsByStudent.
-     */
-    private function buildAssessmentData($activity, $submission)
-    {
-        $items = $activity->items->map(function ($ai) use ($submission) {
-            if (!$ai->item) {
-                \Log::error("Item not found for activity item ID: {$ai->id}");
-                return null;
-            }
-
-            $testCases = $ai->item->testCases->map(function ($tc) {
-                return [
-                    'testCaseID'     => $tc->testCaseID,
-                    'inputData'      => $tc->inputData,
-                    'expectedOutput' => $tc->expectedOutput,
-                    'testCasePoints' => $tc->testCasePoints,
-                    'isHidden'       => $tc->isHidden,
-                ];
-            });
-
-            return [
-                'itemID'              => $ai->item->itemID,
-                'itemName'            => $ai->item->itemName ?? 'Unknown',
-                'itemDesc'            => $ai->item->itemDesc ?? '',
-                'itemDifficulty'      => $ai->item->itemDifficulty ?? 'N/A',
-                'itemType'            => $ai->itemType->itemTypeName ?? 'N/A',
-                'actItemPoints'       => $ai->actItemPoints,
-                'testCaseTotalPoints' => $ai->item->testCases->sum('testCasePoints'),
-                'testCases'           => $testCases,
-                // Display the submission details if available.
-                'studentScore'        => $submission ? $submission->score : null,
-                'studentTimeSpent'    => $submission && $submission->timeSpent !== null
-                    ? $this->formatSecondsToHMS($submission->timeSpent)
-                    : '-',
-                'submissionStatus'    => $submission ? 'Submitted' : 'Not Attempted',
-            ];
-        })->filter(); // Remove any null values
-
-        return [
-            'actDesc'          => $activity->actDesc,
-            'maxPoints'        => $activity->maxPoints,
-            'actDuration'      => $activity->actDuration,
-            'actAttempts'      => $activity->actAttempts,
-            'attemptsTaken'    => ActivitySubmission::where('actID', $activity->actID)
-                                    ->where('studentID', $submission ? $submission->studentID : null)
-                                    ->count(),
-            'allowedLanguages' => $activity->programmingLanguages->map(function ($lang) {
-                return [
-                    'progLangID'        => $lang->progLangID,
-                    'progLangName'      => $lang->progLangName,
-                    'progLangExtension' => $lang->progLangExtension,
-                ];
-            })->values(),
-            'items'            => $items,
-        ];
     }
 
 }
