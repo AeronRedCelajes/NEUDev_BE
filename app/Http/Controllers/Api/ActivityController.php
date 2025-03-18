@@ -17,7 +17,7 @@ class ActivityController extends Controller
 {
 
     ///////////////////////////////////////////////////
-    // FUNCTIONS FOR CLASS MANAGEMENT PAGE VIA ACTIVITY
+    // FUNCTIONS FOR CLASS MANAGEMENT PAGE VIA ACTIVITY (STUDENTS)
     ///////////////////////////////////////////////////
 
     /**
@@ -235,6 +235,10 @@ class ActivityController extends Controller
         }
     }
 
+    ///////////////////////////////////////////////////
+    // FUNCTIONS FOR CLASS MANAGEMENT PAGE VIA ACTIVITY (TEACHERS)
+    ///////////////////////////////////////////////////
+
     /**
      * Create an activity (Only for Teachers)
      */
@@ -345,6 +349,79 @@ class ActivityController extends Controller
         return response()->json($activity);
     }
 
+    // to showcase the class record of the students
+    public function getClassRecord($classID)
+    {
+        // 1) Fetch all students in this class
+        $students = \DB::table('class_student as cs')
+            ->join('students as s', 'cs.studentID', '=', 's.studentID')
+            ->where('cs.classID', $classID)
+            ->select('s.studentID', 's.firstname', 's.lastname', 's.program', 's.profileImage')
+            ->get();
+    
+        // 2) Fetch all activities in this class
+        $activities = Activity::where('classID', $classID)
+            ->select('actID', 'actTitle', 'maxPoints')
+            ->orderBy('actID')
+            ->get();
+    
+        // Build an array to return
+        $data = [];
+        foreach ($students as $stu) {
+            $totalScore    = 0;
+            $totalMaxScore = 0;
+            $activityData  = [];
+    
+            foreach ($activities as $act) {
+                // 3) For each (student, activity), find the pivot record in activity_student
+                $pivot = \DB::table('activity_student')
+                    ->where('studentID', $stu->studentID)
+                    ->where('actID', $act->actID)
+                    ->first();
+    
+                // If the pivot record exists, use its finalScore; otherwise, set 0 for summation
+                $finalScore = $pivot ? $pivot->finalScore : 0;
+                $maxPoints  = $act->maxPoints ?? 0;
+    
+                // Accumulate total for average calculations
+                $totalScore    += $finalScore;
+                $totalMaxScore += $maxPoints;
+    
+                // For the display, show "Not taken yet" if no pivot record
+                $activityData[] = [
+                    'actID'        => $act->actID,
+                    'actTitle'     => $act->actTitle,
+                    'maxPoints'    => $act->maxPoints,
+                    'overallScore' => $pivot ? $finalScore : 'Not taken yet',
+                ];
+            }
+    
+            // Compute average percentage
+            $avgPercentage = ($totalMaxScore > 0)
+                ? round(($totalScore / $totalMaxScore) * 100, 2)
+                : 0;
+    
+            // Include the profile image as a full URL
+            $profileImageUrl = $stu->profileImage ? asset('storage/' . $stu->profileImage) : null;
+    
+            $data[] = [
+                'studentID'      => $stu->studentID,
+                'firstname'      => $stu->firstname,
+                'lastname'       => $stu->lastname,
+                'program'        => $stu->program,
+                'profileImage'   => $profileImageUrl,
+                'totalScore'     => $totalScore,
+                'totalMaxScore'  => $totalMaxScore,
+                'avgPercentage'  => $avgPercentage,
+                'activities'     => $activityData,
+            ];
+        }
+    
+        return response()->json($data);
+    }
+    
+    
+    
     /**
      * Get all activities for a specific class, categorized into Upcoming, Ongoing, and Completed.
      */
@@ -769,31 +846,36 @@ class ActivityController extends Controller
     public function showActivityLeaderboardByStudent($actID)
     {
         $activity = Activity::with('classroom')->find($actID);
-
+    
         if (!$activity) {
             return response()->json(['message' => 'Activity not found'], 404);
         }
-
+    
+        // Join with class_student to ensure that only enrolled students are returned.
         $submissions = DB::table('activity_student as astu')
-        ->join('students as s', 'astu.studentID', '=', 's.studentID')
-        ->select(
-            's.studentID',
-            's.firstname',
-            's.lastname',
-            's.program',
-            's.student_num',
-            's.profileImage',
-            'astu.finalScore',
-            'astu.finalTimeSpent'
-        )
-        ->where('astu.actID', $actID)
-        // Sort by finalScore desc, finalTimeSpent asc, etc.
-        ->orderByDesc('astu.finalScore')
-        ->orderBy('astu.finalTimeSpent')
-        ->orderBy('s.lastname')
-        ->orderBy('s.firstname')
-        ->get();
-
+            ->join('students as s', 'astu.studentID', '=', 's.studentID')
+            ->join('class_student as cs', function ($join) use ($activity) {
+                $join->on('cs.studentID', '=', 's.studentID')
+                     ->where('cs.classID', '=', $activity->classID);
+            })
+            ->select(
+                's.studentID',
+                's.firstname',
+                's.lastname',
+                's.program',
+                's.student_num',
+                's.profileImage',
+                'astu.finalScore',
+                'astu.finalTimeSpent'
+            )
+            ->where('astu.actID', $actID)
+            // Sort by finalScore desc, then finalTimeSpent asc, then by lastname and firstname
+            ->orderByDesc('astu.finalScore')
+            ->orderBy('astu.finalTimeSpent')
+            ->orderBy('s.lastname')
+            ->orderBy('s.firstname')
+            ->get();
+    
         if ($submissions->isEmpty()) {
             return response()->json([
                 'activityName' => $activity->actTitle,
@@ -801,28 +883,29 @@ class ActivityController extends Controller
                 'leaderboard'  => []
             ]);
         }
-
+    
         $rankedSubmissions = $submissions->map(function ($submission, $index) {
             $profileImage = $submission->profileImage 
                 ? asset('storage/' . $submission->profileImage) 
                 : null;
-
+    
             return [
                 'studentName'  => strtoupper($submission->lastname) . ", " . $submission->firstname,
                 'studentNum'   => $submission->student_num,
                 'program'      => $submission->program ?? 'N/A',
                 'score'        => $submission->finalScore,
-                'itemTimeSpent'    => $submission->finalTimeSpent,
+                'itemTimeSpent'=> $submission->finalTimeSpent,
                 'rank'         => ($index + 1),
                 'profileImage' => $profileImage
             ];
         });
-
+    
         return response()->json([
             'activityName' => $activity->actTitle,
             'leaderboard'  => $rankedSubmissions
         ]);
     }
+    
 
     public function showActivityItemsByTeacher($actID)
     {
@@ -886,10 +969,10 @@ class ActivityController extends Controller
     }
     
     
-
     /**
      * Calculate the average student score for an activity item.
-     * Only include the submission that corresponds to each student’s final attempt.
+     * Only include the submission that corresponds to each student’s final attempt,
+     * and filter out submissions from unenrolled students.
      */
     private function calculateAverageScore($itemID, $actID)
     {
@@ -897,38 +980,41 @@ class ActivityController extends Controller
         if (!$activity) {
             return '-';
         }
-    
+
         if ($activity->finalScorePolicy === 'highest_score') {
-            // For each student, get the highest score for the given item.
-            $bestScores = \DB::table('activity_submissions as s')
-                ->select('s.studentID', \DB::raw('MAX(s.score) as bestScore'))
+            // For each student, get the highest score for the given item,
+            // but only consider students currently enrolled in the class.
+            $bestScores = DB::table('activity_submissions as s')
+                ->join('class_student as cs', 's.studentID', '=', 'cs.studentID')
+                ->where('cs.classID', '=', $activity->classID)
                 ->where('s.actID', $actID)
                 ->where('s.itemID', $itemID)
                 ->groupBy('s.studentID')
+                ->select('s.studentID', DB::raw('MAX(s.score) as bestScore'))
                 ->get();
-    
+
             $avg = $bestScores->avg('bestScore');
         } else {
-            // For last_attempt, use the submission where attemptNo equals the pivot's attemptsTaken.
-            $avg = \DB::table('activity_submissions as s')
+            // For last_attempt: join with class_student to filter unenrolled students.
+            $avg = DB::table('activity_submissions as s')
                 ->join('activity_student as a', function ($join) use ($actID) {
                     $join->on('s.studentID', '=', 'a.studentID')
-                         ->where('a.actID', '=', $actID);
+                        ->where('a.actID', '=', $actID);
                 })
+                ->join('class_student as cs', 's.studentID', '=', 'cs.studentID')
+                ->where('cs.classID', '=', $activity->classID)
                 ->where('s.actID', $actID)
                 ->where('s.itemID', $itemID)
                 ->whereColumn('s.attemptNo', 'a.attemptsTaken')
                 ->avg('s.score');
         }
-    
-        // Use formatScore to ensure that a whole number (e.g., 50.00) is displayed as 50,
-        // while decimals (e.g., 50.16) are retained.
+
         return $avg !== null ? $this->formatScore($avg) : '-';
     }
 
     /**
      * Calculate the average time spent by students on an activity item.
-     * Only include the submission corresponding to the final attempt.
+     * Only include the submission corresponding to the final attempt and filter out unenrolled students.
      */
     private function calculateAverageTimeSpent($itemID, $actID)
     {
@@ -936,45 +1022,51 @@ class ActivityController extends Controller
         if (!$activity) {
             return '-';
         }
-        
+
         if ($activity->finalScorePolicy === 'highest_score') {
-            // Get each student's best score for the item.
-            $bestScores = \DB::table('activity_submissions as s')
-                ->select('s.studentID', \DB::raw('MAX(s.score) as bestScore'))
+            // Get each student's best score for the item (only for enrolled students).
+            $bestScores = DB::table('activity_submissions as s')
+                ->join('class_student as cs', 's.studentID', '=', 'cs.studentID')
+                ->where('cs.classID', '=', $activity->classID)
                 ->where('s.actID', $actID)
                 ->where('s.itemID', $itemID)
                 ->groupBy('s.studentID')
+                ->select('s.studentID', DB::raw('MAX(s.score) as bestScore'))
                 ->get();
-        
+
             // For each student, get the corresponding itemTimeSpent from one row that has that best score.
             $timeSpentValues = [];
             foreach ($bestScores as $bs) {
-                $row = \DB::table('activity_submissions as s')
-                    ->select('s.itemTimeSpent')
+                $row = DB::table('activity_submissions as s')
+                    ->join('class_student as cs', 's.studentID', '=', 'cs.studentID')
+                    ->where('cs.classID', '=', $activity->classID)
                     ->where('s.actID', $actID)
                     ->where('s.itemID', $itemID)
                     ->where('s.studentID', $bs->studentID)
                     ->where('s.score', $bs->bestScore)
+                    ->select('s.itemTimeSpent')
                     ->first();
                 if ($row && isset($row->itemTimeSpent)) {
                     $timeSpentValues[] = $row->itemTimeSpent;
                 }
             }
-        
+
             $avgSeconds = !empty($timeSpentValues) ? array_sum($timeSpentValues) / count($timeSpentValues) : null;
         } else {
-            // For last_attempt policy.
-            $avgSeconds = \DB::table('activity_submissions as s')
+            // For last_attempt policy, also join with class_student.
+            $avgSeconds = DB::table('activity_submissions as s')
                 ->join('activity_student as a', function ($join) use ($actID) {
                     $join->on('s.studentID', '=', 'a.studentID')
-                         ->where('a.actID', '=', $actID);
+                        ->where('a.actID', '=', $actID);
                 })
+                ->join('class_student as cs', 's.studentID', '=', 'cs.studentID')
+                ->where('cs.classID', '=', $activity->classID)
                 ->where('s.actID', $actID)
                 ->where('s.itemID', $itemID)
                 ->whereColumn('s.attemptNo', 'a.attemptsTaken')
                 ->avg('s.itemTimeSpent');
         }
-        
+
         return $avgSeconds !== null ? $this->formatSecondsToHMS(round($avgSeconds)) : '-';
     }
 
@@ -987,9 +1079,13 @@ class ActivityController extends Controller
             return response()->json(['message' => 'Activity not found'], 404);
         }
     
-        // Read from the pivot table "activity_student" and join with the "students" table.
-        $submissions = \DB::table('activity_student as astu')
+        // Join with class_student to filter only enrolled students.
+        $submissions = DB::table('activity_student as astu')
             ->join('students as s', 'astu.studentID', '=', 's.studentID')
+            ->join('class_student as cs', function ($join) use ($activity) {
+                $join->on('cs.studentID', '=', 's.studentID')
+                     ->where('cs.classID', '=', $activity->classID);
+            })
             ->select(
                 's.studentID',
                 's.firstname',
@@ -1001,14 +1097,13 @@ class ActivityController extends Controller
                 'astu.finalTimeSpent'
             )
             ->where('astu.actID', $actID)
-            // Sort by finalScore DESC, then finalTimeSpent ASC, then by lastname and firstname
+            // Sort by finalScore DESC, then finalTimeSpent ASC, etc.
             ->orderByDesc('astu.finalScore')
             ->orderBy('astu.finalTimeSpent')
             ->orderBy('s.lastname')
             ->orderBy('s.firstname')
             ->get();
     
-        // If no pivot records exist, return an empty leaderboard.
         if ($submissions->isEmpty()) {
             return response()->json([
                 'activityName' => $activity->actTitle,
@@ -1017,9 +1112,7 @@ class ActivityController extends Controller
             ]);
         }
     
-        // Build the leaderboard array.
         $rankedSubmissions = $submissions->map(function ($submission, $index) {
-            // Convert relative profile image path to full URL
             $profileImage = $submission->profileImage 
                 ? asset('storage/' . $submission->profileImage) 
                 : null;
@@ -1039,7 +1132,7 @@ class ActivityController extends Controller
             'activityName' => $activity->actTitle,
             'leaderboard'  => $rankedSubmissions
         ]);
-    }
+    }    
 
     /**
      * Show the activity settings.

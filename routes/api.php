@@ -129,6 +129,7 @@ Route::middleware('auth:sanctum')->group(function () {
             Route::get('/activities/{actID}', 'show');
             Route::put('/activities/{actID}', 'update');
             Route::delete('/activities/{actID}', 'destroy');
+            Route::get('/class/{classID}/record', 'getClassRecord');
         });
 
         // Item Controller endpoints

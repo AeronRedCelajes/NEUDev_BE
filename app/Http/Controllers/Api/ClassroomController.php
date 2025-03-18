@@ -6,6 +6,7 @@ use App\Http\Controllers\Controller;
 use Illuminate\Http\Request;
 use App\Models\Classroom;
 use App\Models\Student;
+use App\Models\Teacher;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Storage;
@@ -19,7 +20,7 @@ class ClassroomController extends Controller
     {
         $teacher = Auth::user();
     
-        if (!$teacher || !$teacher instanceof \App\Models\Teacher) {
+        if (!$teacher || !$teacher instanceof Teacher) {
             return response()->json(['message' => 'Unauthorized'], 403);
         }
     

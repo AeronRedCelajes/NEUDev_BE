@@ -4,6 +4,8 @@ namespace App\Models;
 
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Eloquent\Builder;
+
 
 class Activity extends Model
 {
@@ -34,6 +36,15 @@ class Activity extends Model
         'delayGrading',
         'completed_at'
     ];
+
+    // Add this method to apply the global ordering
+    protected static function booted()
+    {
+        static::addGlobalScope('orderByCreatedAt', function (Builder $builder) {
+            $builder->orderBy('created_at', 'asc'); // or 'asc' based on your preference
+        });
+    }
+
 
     /**
      * Get the classroom associated with this activity.

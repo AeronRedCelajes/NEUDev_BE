@@ -385,9 +385,19 @@ class ActivitySubmissionController extends Controller
             return response()->json(['message' => 'Unauthorized'], 403);
         }
 
-        // Get pivot records for this activity.
-        $pivots = DB::table('activity_student')
-            ->where('actID', $actID)
+        // Fetch the activity to know its classID.
+        $activity = Activity::with('classroom')->find($actID);
+        if (!$activity) {
+            return response()->json(['message' => 'Activity not found'], 404);
+        }
+
+        // Get pivot records for this activity, but join with class_student to filter unenrolled students.
+        $pivots = DB::table('activity_student as astu')
+            ->join('class_student as cs', function($join) use ($activity) {
+                $join->on('astu.studentID', '=', 'cs.studentID')
+                    ->where('cs.classID', '=', $activity->classID);
+            })
+            ->where('astu.actID', $actID)
             ->get();
 
         if ($pivots->isEmpty()) {
@@ -434,6 +444,7 @@ class ActivitySubmissionController extends Controller
             'submissions' => $results
         ]);
     }
+
 
     /**
      * Retrieve detailed submission data for a given activity, student, and attempt.
