@@ -18,21 +18,6 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Route;
 use Illuminate\Support\Facades\Log;
 
-// Fallback route for undefined API calls
-Route::fallback(function () {
-    Log::warning('Invalid API Request:', [
-        'url' => request()->url(),
-        'method' => request()->method(),
-        'headers' => request()->header(),
-        'body' => request()->all()
-    ]);
-    return response()->json([
-        'message' => 'Route not found. Please check your API endpoint.',
-        'requested_url' => request()->url(),
-        'status' => 404
-    ], 404);
-});
-
 // Authentication Routes (Public)
 Route::controller(AuthController::class)->group(function () {
     Route::post('/register/student', 'registerStudent');
@@ -199,4 +184,19 @@ Route::middleware('auth:sanctum')->group(function () {
         // Delete a concern
         Route::delete('/{id}', [ConcernController::class, 'destroy']);
     });
+});
+
+// Fallback route for undefined API calls
+Route::fallback(function () {
+    Log::warning('Invalid API Request:', [
+        'url' => request()->url(),
+        'method' => request()->method(),
+        'headers' => request()->header(),
+        'body' => request()->all()
+    ]);
+    return response()->json([
+        'message' => 'Route not found. Please check your API endpoint.',
+        'requested_url' => request()->url(),
+        'status' => 404
+    ], 404);
 });
