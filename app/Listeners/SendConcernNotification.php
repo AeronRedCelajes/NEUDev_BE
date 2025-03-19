@@ -26,7 +26,7 @@ class SendConcernNotification
             'type' => 'Concern Posted',
             'data' => json_encode([
                 'concern_id' => $concern->id,
-                'message'    => 'A student has posted a concern in "' . $className . '".',
+                'message'    => 'A student has posted a concern in ' . $className . '.',
             ]),
         ]);
     }
