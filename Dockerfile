@@ -51,6 +51,9 @@ RUN docker-php-ext-configure zip \
 # Copy the built application from the build stage
 COPY --from=build /var/www /var/www
 
+# Create Supervisor log directory to avoid the "directory does not exist" error
+RUN mkdir -p /var/log/supervisor
+
 # Fix ownership/permissions
 RUN chown -R www-data:www-data /var/www/storage /var/www/bootstrap/cache \
     && chmod -R 775 /var/www/storage /var/www/bootstrap/cache
