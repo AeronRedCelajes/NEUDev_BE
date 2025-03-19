@@ -1,7 +1,7 @@
 # Stage 1: Build Stage
 FROM php:8.3-fpm-alpine AS build
 
-# Install build dependencies and PHP extensions needed for building
+# Install build dependencies and PHP extensions needed for installation/building
 RUN apk add --no-cache \
     build-base \
     libpng-dev \
@@ -22,10 +22,10 @@ RUN composer install --no-dev --prefer-dist --optimize-autoloader
 # Create the storage symlink
 RUN php artisan storage:link
 
-# Stage 2: Production Stage with Nginx and Supervisor
+# Stage 2: Production Stage with Nginx
 FROM php:8.3-fpm-alpine
 
-# Install Nginx, Supervisor, and production dependencies
+# Install Nginx and production dependencies
 RUN apk add --no-cache \
     zip \
     libzip-dev \
@@ -37,8 +37,7 @@ RUN apk add --no-cache \
     libpng-dev \
     oniguruma-dev \
     gettext-dev \
-    nginx \
-    supervisor
+    nginx
 
 # Install necessary PHP extensions
 RUN docker-php-ext-configure zip \
@@ -51,8 +50,8 @@ RUN docker-php-ext-configure zip \
 # Copy the built application from the build stage
 COPY --from=build /var/www /var/www
 
-# Copy your custom Nginx configuration file into the container.
-# Ensure you have a deploy/nginx.conf file that points the root to /var/www/public.
+# Copy your custom Nginx configuration file into the container
+# Ensure you have a deploy/nginx.conf file that points the root to /var/www/public
 COPY deploy/nginx.conf /etc/nginx/http.d/default.conf
 
 WORKDIR /var/www
@@ -60,8 +59,5 @@ WORKDIR /var/www
 # Expose port 80 (HTTP)
 EXPOSE 80
 
-# Copy Supervisor configuration file
-COPY deploy/supervisord.conf /etc/supervisor/conf.d/supervisord.conf
-
-# Start Supervisor to manage Nginx, PHP-FPM, and the Laravel scheduler
-CMD ["supervisord", "-c", "/etc/supervisor/conf.d/supervisord.conf"]
+# Start Nginx and PHP-FPM
+CMD ["sh", "-c", "nginx && php-fpm"]
