@@ -1,38 +1,67 @@
-# Use an official PHP image with FPM on Alpine Linux
-FROM php:8.3-fpm-alpine
+# Stage 1: Build Stage
+FROM php:8.3-fpm-alpine AS build
 
-# Install system dependencies and PHP extensions
+# Install build dependencies and PHP extensions needed for building
 RUN apk add --no-cache \
     build-base \
     libpng-dev \
     libjpeg-turbo-dev \
     libwebp-dev \
     libxpm-dev \
-    oniguruma-dev \
-    supervisor \
-    && docker-php-ext-configure gd --with-jpeg --with-webp --with-xpm \
-    && docker-php-ext-install -j$(nproc) pdo_mysql mbstring exif pcntl gd
+    oniguruma-dev
 
 # Install Composer from the official Composer image
 COPY --from=composer:2 /usr/bin/composer /usr/bin/composer
 
-# Set working directory
 WORKDIR /var/www
 
-# Copy application files to the container
+# Copy application files and install PHP dependencies
 COPY . .
-
-# Install PHP dependencies via Composer
 RUN composer install --no-dev --prefer-dist --optimize-autoloader
 
 # Create the storage symlink
 RUN php artisan storage:link
 
-# Copy the Supervisor configuration file into the container
-COPY supervisord.conf /etc/supervisor/conf.d/supervisord.conf
+# Stage 2: Production Stage with Nginx and Supervisor
+FROM php:8.3-fpm-alpine
 
-# Expose the port PHP-FPM listens on (default 9000)
-EXPOSE 9000
+# Install Nginx, Supervisor, and production dependencies
+RUN apk add --no-cache \
+    zip \
+    libzip-dev \
+    freetype \
+    libjpeg-turbo \
+    libpng \
+    freetype-dev \
+    libjpeg-turbo-dev \
+    libpng-dev \
+    oniguruma-dev \
+    gettext-dev \
+    nginx \
+    supervisor
 
-# Start Supervisor, which will in turn run PHP-FPM and the scheduler
-CMD ["/usr/bin/supervisord", "-c", "/etc/supervisor/conf.d/supervisord.conf"]
+# Install necessary PHP extensions
+RUN docker-php-ext-configure zip \
+    && docker-php-ext-install zip pdo pdo_mysql \
+    && docker-php-ext-configure gd --with-freetype=/usr/include/ --with-jpeg=/usr/include/ \
+    && docker-php-ext-install -j$(nproc) gd \
+    && docker-php-ext-install bcmath exif gettext opcache \
+    && rm -rf /var/cache/apk/*
+
+# Copy the built application from the build stage
+COPY --from=build /var/www /var/www
+
+# Copy your custom Nginx configuration file into the container.
+# Ensure you have a deploy/nginx.conf file that points the root to /var/www/public.
+COPY deploy/nginx.conf /etc/nginx/http.d/default.conf
+
+WORKDIR /var/www
+
+# Expose port 80 (HTTP)
+EXPOSE 80
+
+# Copy Supervisor configuration file
+COPY deploy/supervisord.conf /etc/supervisor/conf.d/supervisord.conf
+
+# Start Supervisor to manage Nginx, PHP-FPM, and the Laravel scheduler
+CMD ["supervisord", "-c", "/etc/supervisor/conf.d/supervisord.conf"]
