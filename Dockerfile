@@ -51,6 +51,10 @@ RUN docker-php-ext-configure zip \
 # Copy the built application from the build stage
 COPY --from=build /var/www /var/www
 
+# Fix ownership/permissions
+RUN chown -R www-data:www-data /var/www/storage /var/www/bootstrap/cache \
+    && chmod -R 775 /var/www/storage /var/www/bootstrap/cache
+
 # Copy your custom Nginx configuration file into the container.
 # Ensure you have a deploy/nginx.conf file that points the root to /var/www/public.
 COPY deploy/nginx.conf /etc/nginx/http.d/default.conf
