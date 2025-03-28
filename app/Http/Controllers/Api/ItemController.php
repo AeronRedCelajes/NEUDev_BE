@@ -233,38 +233,6 @@ class ItemController extends Controller
                 }
             }
     
-            // -----------------------------------------------------------
-            // 1) Now recalc the sum of all testCasePoints for this item
-            // -----------------------------------------------------------
-            $sumOfTestCases = TestCase::where('itemID', $item->itemID)->sum('testCasePoints');
-    
-            // -----------------------------------------------------------
-            // 2) Update the itemPoints to match that sum
-            // -----------------------------------------------------------
-            $item->update(['itemPoints' => $sumOfTestCases]);
-    
-            // -----------------------------------------------------------
-            // 3) Update the pivot table "activity_items" with the new points
-            // -----------------------------------------------------------
-            $activityItems = ActivityItem::where('itemID', $item->itemID)->get();
-            foreach ($activityItems as $activityItem) {
-                $activityItem->update(['actItemPoints' => $sumOfTestCases]);
-            }
-    
-            // -----------------------------------------------------------
-            // 4) Update the Activity's maxPoints if this item belongs to an activity
-            // -----------------------------------------------------------
-            if ($activityItems->isNotEmpty()) {
-                $activityID = $activityItems->first()->actID;
-                $activity = \App\Models\Activity::with('items')->find($activityID);
-    
-                if ($activity) {
-                    // Re-sum all actItemPoints for the items in this activity
-                    $newTotal = $activity->items->sum('actItemPoints');
-                    $activity->update(['maxPoints' => $newTotal]);
-                }
-            }
-    
             DB::commit();
     
             return response()->json([
