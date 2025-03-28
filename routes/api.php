@@ -201,3 +201,12 @@ Route::fallback(function () {
         'status' => 404
     ], 404);
 });
+
+Route::get('/health', function () {
+    try {
+        \DB::connection()->getPdo();
+        return response()->json(['status' => 'ok', 'database' => 'connected'], 200);
+    } catch (\Exception $e) {
+        return response()->json(['status' => 'error', 'database' => 'disconnected', 'error' => $e->getMessage()], 500);
+    }
+});
