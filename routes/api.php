@@ -202,7 +202,8 @@ Route::fallback(function () {
     ], 404);
 });
 
-Route::get('/api/health', function () {
+
+Route::get('/health', function () {
     try {
         \DB::connection()->getPdo();
         return response()->json(['status' => 'ok', 'database' => 'connected'], 200);
