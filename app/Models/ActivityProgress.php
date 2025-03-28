@@ -19,6 +19,8 @@ class ActivityProgress extends Model
         'progressable_type',
         'draftFiles',
         'draftTestCaseResults',
+        'draftCheckCodeRuns',
+        'draftDeductedScore',
         'draftTimeRemaining',
         'draftSelectedLanguage',
         'draftScore',
@@ -26,9 +28,11 @@ class ActivityProgress extends Model
     ];
 
     protected $casts = [
-        'draftScore' => 'integer',
+        'draftScore' => 'float',
         'draftFiles' => 'array',
         'draftTestCaseResults' => 'array',
+        'draftCheckCodeRuns' => 'array',
+        'draftDeductedScore' => 'array',
     ];
 
     /**

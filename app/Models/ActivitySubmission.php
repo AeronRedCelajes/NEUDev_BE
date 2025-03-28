@@ -20,6 +20,7 @@ class ActivitySubmission extends Model
         'attemptNo', 
         'codeSubmission', // Will store JSON string 
         'testCaseResults', // Will store JSON string 
+        'checkCodeRuns',
         'timeRemaining',
         'selectedLanguage', 
         'score',

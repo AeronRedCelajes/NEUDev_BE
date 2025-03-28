@@ -90,8 +90,49 @@ class ActivitySubmissionController extends Controller
             $createdSubmissions[] = $submission;
         }
 
-        // 4) Summarize all attempts for this student in this activity.
-        // For overall timeSpent, we use MAX(timeSpent) since that represents the overall time from progress.
+        // 4) Retrieve the progress record which holds the draft check code runs and deducted scores.
+        $progressRecord = ActivityProgress::where('actID', $actID)
+            ->where('progressable_id', $student->studentID)
+            ->where('progressable_type', get_class($student))
+            ->first();
+
+        // 4a) Update submissions with the run counts from the progress record.
+        if ($progressRecord && $progressRecord->draftCheckCodeRuns) {
+            // Decode the JSON field that tracks check code runs per item.
+            $checkCodeData = json_decode($progressRecord->draftCheckCodeRuns, true);
+            foreach ($createdSubmissions as $submission) {
+                // For each submission, assign the run count; default to 0 if not set.
+                $runs = isset($checkCodeData[$submission->itemID]) ? $checkCodeData[$submission->itemID] : 0;
+                $submission->checkCodeRuns = $runs;
+                $submission->save();
+            }
+        }
+
+        // 4b) Also, update submissions with the deducted score from the progress record.
+        // This ensures that if the check code deduction was applied in real time,
+        // the final submission reflects that deducted score.
+        $progressRecord = ActivityProgress::where('actID', $actID)
+            ->where('progressable_id', $student->studentID)
+            ->where('progressable_type', get_class($student))
+            ->first();
+
+        if ($progressRecord) {
+            // Decode both JSON fields.
+            $checkCodeData = $progressRecord->draftCheckCodeRuns ? json_decode($progressRecord->draftCheckCodeRuns, true) : [];
+            $deductedScores = $progressRecord->draftDeductedScore ? json_decode($progressRecord->draftDeductedScore, true) : [];
+            foreach ($createdSubmissions as $submission) {
+                $runs = isset($checkCodeData[$submission->itemID]) ? $checkCodeData[$submission->itemID] : 0;
+                $submission->checkCodeRuns = $runs;
+                // If a deducted score is recorded for this item, update the submission score.
+                if (isset($deductedScores[$submission->itemID])) {
+                    $submission->score = $deductedScores[$submission->itemID];
+                }
+                $submission->save();
+            }
+        }
+
+        // 5) Summarize all attempts for this student in this activity.
+        // We use SUM(score) and MAX(timeSpent) to capture overall performance.
         $summaries = ActivitySubmission::select(
                 'studentID',
                 'attemptNo',
@@ -103,6 +144,7 @@ class ActivitySubmissionController extends Controller
             ->groupBy('studentID', 'attemptNo')
             ->get();
 
+        // 6) Determine which attempt summary to use based on finalScorePolicy.
         $activity = Activity::find($actID);
         if ($activity->finalScorePolicy === 'highest_score') {
             $sorted = $summaries->sort(function ($a, $b) {
@@ -113,13 +155,13 @@ class ActivitySubmissionController extends Controller
             })->values();
             $finalSummary = $sorted->first();
         } else {
-            // For last_attempt: choose the summary with the highest attemptNo.
+            // For 'last_attempt', choose the summary with the highest attempt number.
             $finalSummary = $summaries->first(function ($sum) use ($summaries) {
                 return $sum->attemptNo == $summaries->max('attemptNo');
             });
         }
 
-        // 5) Compute rank for THIS student's result by comparing with all students’ pivot records.
+        // 7) Compute rank for this student's result by comparing pivot records.
         $allPivots = DB::table('activity_student')
             ->where('actID', $actID)
             ->orderByDesc('finalScore')
@@ -133,21 +175,46 @@ class ActivitySubmissionController extends Controller
             $rank++;
         }
 
-        // 6) Determine finalScore and finalTimeSpent based on the chosen attempt summary.
+        // 8) Determine finalScore and finalTimeSpent based on the chosen attempt summary.
         $finalScore = $finalSummary ? $finalSummary->totalScore : 0;
         $finalTimeSpent = $finalSummary ? $finalSummary->totalTimeSpent : 0;
 
-        // Additionally, try to use the timeSpent value from the progress record.
+        // Optionally, use the progress record's overall timeSpent if available.
         $progressRecord = ActivityProgress::where('actID', $actID)
             ->where('progressable_id', $student->studentID)
             ->where('progressable_type', get_class($student))
             ->first();
         if ($progressRecord && isset($progressRecord->timeSpent)) {
-            // Use the progress record's "timeSpent" (overall draft time)
             $finalTimeSpent = $progressRecord->timeSpent;
         }
 
-        // 7) Update the pivot record with the new finalScore, finalTimeSpent, and rank.
+        // 9) Retrieve the activity to get global deduction settings.
+        // This is a safeguard: it re-applies deduction logic for each submission.
+        $activity = Activity::find($actID);
+        $deductionPercentage = $activity->checkCodeDeduction; // e.g., 10 means 10%
+        $maxRuns = $activity->maxCheckCodeRuns ?? PHP_INT_MAX;
+
+        // Loop through each submission and re-apply deduction logic if needed.
+        foreach ($createdSubmissions as $submission) {
+            $runs = $submission->checkCodeRuns;
+            if ($runs > $maxRuns) {
+                $runs = $maxRuns;
+                $submission->checkCodeRuns = $runs;
+                $submission->save();
+            }
+            if ($runs > 1 && $deductionPercentage) {
+                $extraRuns = $runs - 1;
+                // The assumption is that the original score (without deductions) was stored,
+                // but here we use the current submission score. This logic ensures it never goes below zero.
+                $originalScore = $submission->score;
+                $deduction = $originalScore * ($deductionPercentage / 100) * $extraRuns;
+                $newScore = max($originalScore - $deduction, 0);
+                $submission->score = $newScore;
+                $submission->save();
+            }
+        }
+
+        // 10) Update the pivot record with the new finalScore, finalTimeSpent, and rank.
         DB::table('activity_student')
             ->where('actID', $actID)
             ->where('studentID', $student->studentID)
@@ -158,7 +225,7 @@ class ActivitySubmissionController extends Controller
                 'updated_at'     => now()
             ]);
 
-        // 8) Clear the progress record for this activity.
+        // 11) Clear the progress record for this activity.
         ActivityProgress::where('actID', $actID)
             ->where('progressable_id', $student->studentID)
             ->where('progressable_type', get_class($student))

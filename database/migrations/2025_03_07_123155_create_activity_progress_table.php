@@ -17,10 +17,13 @@ return new class extends Migration {
 
             $table->longText('draftFiles')->nullable();
             $table->json('draftTestCaseResults')->nullable();
+            $table->json('draftCheckCodeRuns')->nullable();
+            $table->json('draftDeductedScore')->nullable();
             $table->integer('draftTimeRemaining')->nullable();
             $table->string('draftSelectedLanguage')->nullable();
             $table->float('draftScore')->nullable();
             $table->longText('draftItemTimes')->nullable();
+            
 
             $table->timestamps();
 

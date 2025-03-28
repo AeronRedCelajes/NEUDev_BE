@@ -80,6 +80,7 @@ Route::middleware('auth:sanctum')->group(function () {
 
 
         // ASSESSMENT PAGE: Endpoints for saving and retrieving activity progress.
+        Route::post('/activities/{actID}/check-code/{itemID}', [ActivityProgressController::class, 'runCheckCode']);
         Route::get('/activities/{actID}/progress', [ActivityProgressController::class, 'getProgress']);
         Route::post('/activities/{actID}/progress', [ActivityProgressController::class, 'saveProgress']);
         Route::delete('/activities/{actID}/progress', [ActivityProgressController::class, 'clearProgress']);

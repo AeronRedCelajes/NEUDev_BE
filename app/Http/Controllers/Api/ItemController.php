@@ -101,14 +101,20 @@ class ItemController extends Controller
 
             // Process test cases if provided.
             if (!empty($validatedData['testCases'])) {
+                $numTestCases = count($validatedData['testCases']);
+                $totalPoints = $validatedData['itemPoints'];
+                // Calculate the raw (exact) value for each test case.
+                $rawValue = $totalPoints / $numTestCases;
+                
+                // Use the same raw value for each test case.
                 foreach ($validatedData['testCases'] as $testCase) {
-                    TestCase::create([
+                     TestCase::create([
                         'itemID'         => $item->itemID,
                         'inputData'      => $testCase['inputData'] ?? "",
                         'expectedOutput' => $testCase['expectedOutput'],
-                        'testCasePoints' => $testCase['testCasePoints'],
-                        'isHidden'       => $testCase['isHidden'] ?? false, // default to false
-                    ]);
+                        'testCasePoints' => $rawValue,
+                        'isHidden'       => $testCase['isHidden'] ?? false,
+                     ]);
                 }
             }
 
@@ -180,6 +186,7 @@ class ItemController extends Controller
             $rules['testCases'] = 'required|array';
             $rules['testCases.*.inputData'] = 'nullable|string';
             $rules['testCases.*.expectedOutput'] = 'required|string';
+            // Although teachers provide a value, we'll auto-distribute, so this rule is here for validation.
             $rules['testCases.*.testCasePoints'] = 'required|numeric|min:0';
             $rules['testCases.*.isHidden'] = 'sometimes|boolean';
         } else {
@@ -204,16 +211,22 @@ class ItemController extends Controller
             // Sync programming languages.
             $item->programmingLanguages()->sync($validatedData['progLangIDs']);
     
-            // Update test cases: delete existing and add new ones if provided.
+            // Update test cases: delete existing and add new ones with auto-distribution.
             if ($request->has('testCases')) {
-                TestCase::where('itemID', $itemID)->delete();
+                TestCase::where('itemID', $item->itemID)->delete();
                 if (!empty($validatedData['testCases'])) {
+                    $numTestCases = count($validatedData['testCases']);
+                    $totalPoints = $validatedData['itemPoints'];
+                    // Calculate the raw value for each test case.
+                    $rawValue = $totalPoints / $numTestCases;
+                    
+                    // Create each test case with the same raw value.
                     foreach ($validatedData['testCases'] as $testCase) {
                         TestCase::create([
                             'itemID'         => $item->itemID,
                             'inputData'      => $testCase['inputData'] ?? "",
                             'expectedOutput' => $testCase['expectedOutput'],
-                            'testCasePoints' => $testCase['testCasePoints'],
+                            'testCasePoints' => $rawValue,
                             'isHidden'       => $testCase['isHidden'] ?? false,
                         ]);
                     }

@@ -29,9 +29,13 @@ return new class extends Migration {
             ->default('last_attempt');
             $table->boolean('examMode')->default(false);
             $table->boolean('randomizedItems')->default(false);
-            $table->boolean('disableReviewing')->default(false);
-            $table->boolean('hideLeaderboard')->default(false);
-            $table->boolean('delayGrading')->default(false);
+            
+            // Enable or disable check code deductions globally for the activity
+            $table->boolean('checkCodeRestriction')->default(false);
+            // Maximum allowed check code runs per item (e.g., 3 runs)
+            $table->integer('maxCheckCodeRuns')->nullable();
+            // Deduction percentage applied per extra run after the first (e.g., 10 for 10%)
+            $table->float('checkCodeDeduction')->nullable();
 
             $table->timestamp('completed_at')->nullable();
 

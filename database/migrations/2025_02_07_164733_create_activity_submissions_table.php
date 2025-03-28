@@ -22,6 +22,8 @@ return new class extends Migration {
             // Detailed test case results as a JSON string.
             $table->longText('testCaseResults')->nullable();
 
+            $table->integer('checkCodeRuns')->default(0);
+
             // Optionally, store the remaining time (if relevant) at submission.
             $table->integer('timeRemaining')->nullable();
 

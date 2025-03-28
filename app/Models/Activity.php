@@ -31,9 +31,9 @@ class Activity extends Model
         'finalScorePolicy',
         'examMode',
         'randomizedItems',
-        'disableReviewing',
-        'hideLeaderboard',
-        'delayGrading',
+        'checkCodeRestriction',
+        'maxCheckCodeRuns',
+        'checkCodeDeduction',
         'completed_at'
     ];
 

@@ -271,6 +271,9 @@ class ActivityController extends Controller
                 'items.*.itemTypeID'    => 'required|exists:item_types,itemTypeID',
                 'items.*.actItemPoints' => 'required|numeric|min:1',
                 'finalScorePolicy'      => 'required|in:last_attempt,highest_score',
+                'checkCodeRestriction'  => 'sometimes|boolean',
+                'maxCheckCodeRuns'      => 'sometimes|integer|min:1',
+                'checkCodeDeduction'    => 'sometimes|numeric|min:0',
             ]);
 
             if ($validator->fails()) {
@@ -294,6 +297,9 @@ class ActivityController extends Controller
                 'actAttempts'      => $request->actAttempts,
                 'classAvgScore'    => null,
                 'finalScorePolicy' => $request->finalScorePolicy,
+                'checkCodeRestriction'=> $request->checkCodeRestriction ?? false,
+                'maxCheckCodeRuns'    => $request->maxCheckCodeRuns,
+                'checkCodeDeduction'  => $request->checkCodeDeduction,
             ]);
 
             // Attach programming languages.
@@ -630,6 +636,9 @@ class ActivityController extends Controller
                 'items.*.itemTypeID'    => 'required_with:items|exists:item_types,itemTypeID',
                 'items.*.actItemPoints' => 'required_with:items|numeric|min:1',
                 'finalScorePolicy'      => 'sometimes|required|in:last_attempt,highest_score',
+                'checkCodeRestriction'  => 'sometimes|boolean',
+                'maxCheckCodeRuns'      => 'sometimes|integer|min:1',
+                'checkCodeDeduction'    => 'sometimes|numeric|min:0',
             ]);
 
             if ($validator->fails()) {
@@ -648,7 +657,8 @@ class ActivityController extends Controller
 
             $activity->update($request->only([
                 'actTitle', 'actDesc', 'actDifficulty', 'actDuration',
-                'actAttempts', 'openDate', 'closeDate', 'maxPoints'
+                'actAttempts', 'openDate', 'closeDate', 'maxPoints',
+                'finalScorePolicy', 'checkCodeRestriction', 'maxCheckCodeRuns', 'checkCodeDeduction'
             ]));
 
             if ($request->has('closeDate')) {
@@ -1154,9 +1164,6 @@ class ActivityController extends Controller
             'settings'     => [
                 'examMode'         => (bool)$activity->examMode,
                 'randomizedItems'  => (bool)$activity->randomizedItems,
-                'disableReviewing' => (bool)$activity->disableReviewing,
-                'hideLeaderboard'  => (bool)$activity->hideLeaderboard,
-                'delayGrading'     => (bool)$activity->delayGrading,
             ]
         ]);
     }
@@ -1183,9 +1190,6 @@ class ActivityController extends Controller
         $validatedData = $request->validate([
             'examMode'         => 'boolean',
             'randomizedItems'  => 'boolean',
-            'disableReviewing' => 'boolean',
-            'hideLeaderboard'  => 'boolean',
-            'delayGrading'     => 'boolean',
         ]);
 
         $activity->update($validatedData);
