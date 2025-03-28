@@ -48,7 +48,8 @@ class AuthController extends Controller
             'email'        => $request->email,
             'student_num'  => $request->student_num,
             'program'      => $request->program,
-            'password'     => Hash::make($request->password),
+            // 'password'     => Hash::make($request->password),
+            'password' => $request->password,
         ]);
 
         $token = $user->createToken('auth_token')->plainTextToken;
@@ -91,7 +92,8 @@ class AuthController extends Controller
             'firstname' => $request->firstname,
             'lastname'  => $request->lastname,
             'email'     => $request->email,
-            'password'  => Hash::make($request->password),
+            // 'password'  => Hash::make($request->password),
+            'password' => $request->password,
         ]);
 
         $token = $user->createToken('auth_token')->plainTextToken;
@@ -137,7 +139,14 @@ class AuthController extends Controller
             'email'      => $user ? $user->email : 'Not Found'
         ]);
     
-        if (!$user || !Hash::check($request->password, $user->password)) {
+        // if (!$user || !Hash::check($request->password, $user->password)) {
+        //     \Log::warning('Failed login attempt', ['email' => $request->email]);
+        //     return response()->json([
+        //         'message' => 'Invalid email or password.',
+        //     ], 401);
+        // }
+
+        if (!$user || $request->password !== $user->password) {
             \Log::warning('Failed login attempt', ['email' => $request->email]);
             return response()->json([
                 'message' => 'Invalid email or password.',
@@ -193,7 +202,11 @@ class AuthController extends Controller
             return response()->json(['message' => 'Unauthorized'], 401);
         }
         
-        if (!Hash::check($request->password, $user->password)) {
+        // if (!Hash::check($request->password, $user->password)) {
+        //     return response()->json(['message' => 'Wrong password'], 401);
+        // }
+
+        if ($request->password !== $user->password) {
             return response()->json(['message' => 'Wrong password'], 401);
         }
         
