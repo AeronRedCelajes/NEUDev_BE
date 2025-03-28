@@ -43,7 +43,18 @@ class ItemController extends Controller
             }
         }
 
-        return response()->json($query->get(), 200);
+        $items = $query->get();
+
+        // Format each test case's points using formatScore.
+        foreach ($items as $item) {
+            if ($item->testCases) {
+                foreach ($item->testCases as $tc) {
+                    $tc->testCasePoints = $this->formatScore($tc->testCasePoints);
+                }
+            }
+        }
+
+        return response()->json($items, 200);
     }
 
     /**
@@ -146,6 +157,13 @@ class ItemController extends Controller
             return response()->json(['message' => 'Item not found'], 404);
         }
 
+        // Format test case points.
+        if ($item->testCases) {
+            foreach ($item->testCases as $tc) {
+                $tc->testCasePoints = $this->formatScore($tc->testCasePoints);
+            }
+        }
+
         return response()->json([
             'item'       => $item,
             'created_at' => $item->created_at->toDateTimeString(),
@@ -235,9 +253,17 @@ class ItemController extends Controller
     
             DB::commit();
     
+            // Load updated relations and format test case points.
+            $item->load(['testCases', 'programmingLanguages']);
+            if ($item->testCases) {
+                foreach ($item->testCases as $tc) {
+                    $tc->testCasePoints = $this->formatScore($tc->testCasePoints);
+                }
+            }
+    
             return response()->json([
                 'message'    => 'Item updated successfully',
-                'data'       => $item->load(['testCases', 'programmingLanguages']),
+                'data'       => $item,
                 'created_at' => $item->created_at->toDateTimeString(),
                 'updated_at' => $item->updated_at->toDateTimeString(),
             ], 200);
@@ -250,7 +276,6 @@ class ItemController extends Controller
         }
     }
       
-
     /**
      * Delete an item (and its test cases).
      */
@@ -281,5 +306,21 @@ class ItemController extends Controller
                 'error'   => $e->getMessage()
             ], 500);
         }
+    }
+    
+    /**
+     * Format a numeric value with up to 2 decimal places,
+     * but if it's a whole number (e.g., 145.00), show just '145'.
+     */
+    private function formatScore($value)
+    {
+        if ($value === null) {
+            return '-';
+        }
+        $rounded = round($value, 2);
+        if (fmod($rounded, 1.0) === 0.0) {
+            return (int)$rounded;
+        }
+        return number_format($rounded, 2);
     }
 }
