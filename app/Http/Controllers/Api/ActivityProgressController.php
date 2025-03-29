@@ -103,7 +103,7 @@ class ActivityProgressController extends Controller
             'itemScore' => $currentScore,
         ], 200);
     }
-        
+
 
     /**
      * Save or update progress for the authenticated user (student or teacher).
@@ -137,23 +137,31 @@ class ActivityProgressController extends Controller
             'draftDeductedScore'   => 'nullable|json', // per-item deducted scores
         ]);
         
-        // Update or create the activity-level progress record.
+        // Build an update array with the fields you always want to update.
+        $updateData = [
+            'draftFiles'            => $validatedData['draftFiles'] ?? null,
+            'draftTestCaseResults'  => $validatedData['draftTestCaseResults'] ?? null,
+            'draftTimeRemaining'    => $validatedData['draftTimeRemaining'] ?? null,
+            'draftSelectedLanguage' => $validatedData['draftSelectedLanguage'] ?? null,
+            'draftScore'            => $validatedData['draftScore'] ?? 0,
+            'draftItemTimes'        => $validatedData['draftItemTimes'] ?? null,
+        ];
+
+        // Only update the check-code runs fields if they exist in the incoming data.
+        if (array_key_exists('draftCheckCodeRuns', $validatedData)) {
+            $updateData['draftCheckCodeRuns'] = $validatedData['draftCheckCodeRuns'];
+        }
+        if (array_key_exists('draftDeductedScore', $validatedData)) {
+            $updateData['draftDeductedScore'] = $validatedData['draftDeductedScore'];
+        }
+
         $progress = ActivityProgress::updateOrCreate(
             [
                 'actID'             => $actID,
                 'progressable_id'   => $progressableId,
                 'progressable_type' => get_class($user),
             ],
-            [
-                'draftFiles'            => $validatedData['draftFiles'] ?? null,
-                'draftTestCaseResults'  => $validatedData['draftTestCaseResults'] ?? null,
-                'draftTimeRemaining'    => $validatedData['draftTimeRemaining'] ?? null,
-                'draftSelectedLanguage' => $validatedData['draftSelectedLanguage'] ?? null,
-                'draftScore'            => $validatedData['draftScore'] ?? 0,
-                'draftItemTimes'        => $validatedData['draftItemTimes'] ?? null,
-                'draftCheckCodeRuns'    => $validatedData['draftCheckCodeRuns'] ?? null,
-                'draftDeductedScore'    => $validatedData['draftDeductedScore'] ?? null,
-            ]
+            $updateData
         );
         
         return response()->json([
