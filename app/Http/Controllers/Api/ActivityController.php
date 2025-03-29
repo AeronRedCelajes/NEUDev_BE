@@ -657,13 +657,20 @@ class ActivityController extends Controller
                 ], 422);
             }
 
-            // If a new closeDate is provided and is in the future, clear completed_at.
-            if ($request->has('closeDate') && \Carbon\Carbon::parse($request->closeDate)->gt(now())) {
+            // 1. Grab the old closeDate before updating
+            $oldCloseDate = $activity->closeDate;
+
+            // 2. If a new closeDate is provided and is in the future, clear completed_at
+            if (
+                $request->has('closeDate')
+                && \Carbon\Carbon::parse($request->closeDate)->gt(now())
+            ) {
                 $activity->completed_at = null;
                 $activity->updated_at   = now();
                 $activity->save();
             }
 
+            // 3. Update the model with the requested fields
             $activity->update($request->only([
                 'actTitle', 'actDesc', 'actDifficulty', 'actDuration',
                 'actAttempts', 'openDate', 'closeDate', 'maxPoints',
@@ -671,14 +678,16 @@ class ActivityController extends Controller
                 'checkCodeRestriction', 'maxCheckCodeRuns', 'checkCodeDeduction'
             ]));
 
-            if ($request->has('closeDate')) {
-                // The teacher just changed the closeDate
-                // Fetch all students enrolled in this class
+            // 4. Check if closeDate *actually* changed
+            if (
+                $request->has('closeDate')
+                && $oldCloseDate !== $request->closeDate
+            ) {
+                // Dispatch the event to all students
                 $students = \DB::table('class_student')
                     ->where('classID', $activity->classID)
                     ->pluck('studentID');
-            
-                // For each student, dispatch the event
+
                 foreach ($students as $studentID) {
                     $studentModel = \App\Models\Student::find($studentID);
                     if ($studentModel) {
@@ -687,11 +696,13 @@ class ActivityController extends Controller
                 }
             }
 
+            // 5. Update finalScorePolicy if provided
             if ($request->has('finalScorePolicy')) {
                 $activity->finalScorePolicy = $request->finalScorePolicy;
                 $activity->save();
             }
 
+            // 6. If actDuration changed, recalc the progress timers
             if ($request->has('actDuration')) {
                 list($hours, $minutes, $seconds) = explode(":", $request->actDuration);
                 $newDurationInSeconds = ($hours * 3600) + ($minutes * 60) + $seconds;
@@ -708,10 +719,12 @@ class ActivityController extends Controller
                 }
             }
 
+            // 7. If progLangIDs changed, sync them
             if ($request->has('progLangIDs')) {
                 $activity->programmingLanguages()->sync($request->progLangIDs);
             }
 
+            // 8. If items changed, recreate them
             if ($request->has('items')) {
                 ActivityItem::where('actID', $activity->actID)->delete();
 
