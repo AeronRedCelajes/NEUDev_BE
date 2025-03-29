@@ -679,12 +679,15 @@ class ActivityController extends Controller
             ]));
 
             // 4. Check if closeDate actually changed using Laravel's wasChanged method
-            if ($request->filled('closeDate') && $activity->wasChanged('closeDate')) {
-                // Dispatch the event to all students
+            if (
+                $request->has('closeDate') &&
+                !\Carbon\Carbon::parse($oldCloseDate)->eq(\Carbon\Carbon::parse($request->closeDate))
+            ) {
+                // The teacher *actually* changed the closeDate
                 $students = \DB::table('class_student')
                     ->where('classID', $activity->classID)
                     ->pluck('studentID');
-
+            
                 foreach ($students as $studentID) {
                     $studentModel = \App\Models\Student::find($studentID);
                     if ($studentModel) {
