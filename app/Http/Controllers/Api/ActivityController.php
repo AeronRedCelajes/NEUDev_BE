@@ -874,6 +874,9 @@ class ActivityController extends Controller
                 ];
             })->values(),
             'items'            => $items,
+            'checkCodeRestriction'=> $activity->checkCodeRestriction,
+            'maxCheckCodeRuns'    => $activity->maxCheckCodeRuns,
+            'checkCodeDeduction'  => $activity->checkCodeDeduction,
         ]);
     }
 
@@ -999,6 +1002,9 @@ class ActivityController extends Controller
             'actDuration'      => $activity->actDuration,
             'finalScorePolicy' => $activity->finalScorePolicy,
             'items'            => $items->values(),
+            'checkCodeRestriction'=> $activity->checkCodeRestriction,
+            'maxCheckCodeRuns'    => $activity->maxCheckCodeRuns,
+            'checkCodeDeduction'  => $activity->checkCodeDeduction,
         ]);
     }
     
