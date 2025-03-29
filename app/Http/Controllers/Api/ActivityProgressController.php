@@ -30,12 +30,13 @@ class ActivityProgressController extends Controller
         if (!$activity) {
             return response()->json(['message' => 'Activity not found.'], 404);
         }
+        
         // Global settings:
         $checkCodeRestriction = $activity->checkCodeRestriction;
-        $deductionPercentage  = $activity->checkCodeDeduction ?? 0; // e.g., 10 means 10%
+        $deductionPercentage  = $activity->checkCodeDeduction ?? 0; // e.g., 50 means 50%
         $maxRuns              = $activity->maxCheckCodeRuns ?? PHP_INT_MAX;
         
-        // Retrieve the ActivityItem to know the item's point value.
+        // Retrieve the ActivityItem to know the item's full points.
         $activityItem = ActivityItem::where('actID', $actID)
             ->where('itemID', $itemID)
             ->first();
@@ -60,7 +61,7 @@ class ActivityProgressController extends Controller
                 'draftFiles'            => null,
                 'draftTestCaseResults'  => null,
                 'draftCheckCodeRuns'    => json_encode([]),
-                'draftDeductedScore'    => json_encode([]),
+                'draftDeductedScore'    => json_encode([]), // we won’t use this for frontend display
                 'draftTimeRemaining'    => null,
                 'draftSelectedLanguage' => null,
                 'draftScore'            => 0,
@@ -68,41 +69,41 @@ class ActivityProgressController extends Controller
             ]
         );
         
-        // Decode existing JSON fields.
+        // Decode existing run count (as integer).
         $runsData = $progress->draftCheckCodeRuns ? json_decode($progress->draftCheckCodeRuns, true) : [];
-        $scoreData = $progress->draftDeductedScore ? json_decode($progress->draftDeductedScore, true) : [];
         
-        // 1) Make sure runsData only has an integer
+        // Initialize if not set.
         if (!isset($runsData[$itemID]) || !is_int($runsData[$itemID])) {
             $runsData[$itemID] = 0;
         }
+        
         $currentRuns = $runsData[$itemID] + 1;
         if ($currentRuns > $maxRuns) {
             $currentRuns = $maxRuns;
         }
         $runsData[$itemID] = $currentRuns;
-
-        // 2) Calculate the new score, store in $scoreData
+        
+        // (Optional) Calculate current score if you need it internally:
         $currentScore = $itemPoints;
         if ($checkCodeRestriction && $currentRuns > 1 && $deductionPercentage > 0) {
             $extraRuns = $currentRuns - 1;
-            $deduction = $itemPoints * ($deductionPercentage / 100.0) * $extraRuns;
-            $currentScore = round(max($itemPoints - $deduction, 0), 2);
+            // Deduct percentage per extra run:
+            $currentScore = round(max($itemPoints - ($itemPoints * ($deductionPercentage / 100.0) * $extraRuns), 0), 2);
         }
-        $scoreData[$itemID] = $currentScore;
-
-        // 3) Save them back to JSON
+        
+        // Save the run count (we no longer send the deducted score to the frontend).
         $progress->draftCheckCodeRuns = json_encode($runsData);
-        $progress->draftDeductedScore = json_encode($scoreData);
         $progress->save();
         
         return response()->json([
             'message'   => 'Check code run completed.',
             'itemID'    => $itemID,
             'runCount'  => $currentRuns,
+            // Optionally, you can send currentScore if needed on backend but frontend will ignore it:
             'itemScore' => $currentScore,
         ], 200);
     }
+        
 
     /**
      * Save or update progress for the authenticated user (student or teacher).
