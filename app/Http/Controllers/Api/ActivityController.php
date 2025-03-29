@@ -277,8 +277,8 @@ class ActivityController extends Controller
                 'checkCodeRestriction'  => 'sometimes|boolean',
                 'examMode' => 'sometimes|boolean',
                 'randomizedItems' => 'sometimes|boolean',
-                'maxCheckCodeRuns'      => 'sometimes|integer|min:1',
-                'checkCodeDeduction'    => 'sometimes|numeric|min:0',
+                'maxCheckCodeRuns'      => 'sometimes|nullable|integer|min:1|required_if:checkCodeRestriction,true',
+                'checkCodeDeduction'    => 'sometimes|nullable|numeric|min:0|required_if:checkCodeRestriction,true',
             ]);
 
             if ($validator->fails()) {
