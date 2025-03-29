@@ -37,6 +37,12 @@ class Activity extends Model
         'completed_at'
     ];
 
+    protected $casts = [
+        'examMode'           => 'boolean',
+        'randomizedItems'    => 'boolean',
+        'checkCodeRestriction' => 'boolean',
+    ];
+
     // Add this method to apply the global ordering
     protected static function booted()
     {
