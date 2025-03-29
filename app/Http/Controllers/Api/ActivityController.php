@@ -161,9 +161,9 @@ class ActivityController extends Controller
                 'scorePercentage'    => $scorePercentage,
                 'attemptsTaken'      => $attemptsTaken,
                 'studentTimeSpent'   => $formattedTime,
-                'checkCodeRestriction'=> $activity->checkCodeRestriction ? 'Yes' : 'No',
                 'examMode'            => $activity->examMode ? 'Yes' : 'No',
                 'randomizedItems'     => $activity->randomizedItems ? 'Yes' : 'No',
+                'checkCodeRestriction'=> $activity->checkCodeRestriction ? 'Yes' : 'No',
             ];
         });
     }
