@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Api;
 use App\Http\Controllers\Controller;
 use Illuminate\Http\Request;
 use App\Models\ActivitySubmission;
+use App\Models\ActivityItem;
 use App\Models\Activity;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
@@ -194,8 +195,13 @@ class ActivitySubmissionController extends Controller
         $deductionPercentage = $activity->checkCodeDeduction; // e.g., 10 means 10%
         $maxRuns = $activity->maxCheckCodeRuns ?? PHP_INT_MAX;
 
-        // Loop through each submission and re-apply deduction logic if needed.
         foreach ($createdSubmissions as $submission) {
+            // For each submission, fetch the original full points from the ActivityItem.
+            $activityItem = ActivityItem::where('actID', $actID)
+                ->where('itemID', $submission->itemID)
+                ->first();
+            $originalPoints = $activityItem ? $activityItem->actItemPoints : $submission->score; // fallback
+
             $runs = $submission->checkCodeRuns;
             if ($runs > $maxRuns) {
                 $runs = $maxRuns;
@@ -204,11 +210,11 @@ class ActivitySubmissionController extends Controller
             }
             if ($runs > 1 && $deductionPercentage) {
                 $extraRuns = $runs - 1;
-                // The assumption is that the original score (without deductions) was stored,
-                // but here we use the current submission score. This logic ensures it never goes below zero.
-                $originalScore = $submission->score;
-                $deduction = $originalScore * ($deductionPercentage / 100) * $extraRuns;
-                $newScore = max($originalScore - $deduction, 0);
+                // Calculate deduction from the original full points.
+                $deduction = $originalPoints * ($deductionPercentage / 100.0) * $extraRuns;
+                $newScore = max($originalPoints - $deduction, 0);
+                // Round the new score to avoid floating point precision issues.
+                $newScore = round($newScore, 2);
                 $submission->score = $newScore;
                 $submission->save();
             }
@@ -571,6 +577,7 @@ class ActivitySubmissionController extends Controller
                 'timeRemaining'     => $submission->timeRemaining,
                 'selectedLanguage'  => $submission->selectedLanguage,
                 'score'             => $submission->score,
+                'checkCodeRuns'     => $submission->checkCodeRuns,
                 'itemTimeSpent'     => $submission->itemTimeSpent,
                 'timeSpent'         => $submission->timeSpent,
                 'submitted_at'      => $submission->submitted_at,
