@@ -87,7 +87,7 @@ class ActivityProgressController extends Controller
         if ($checkCodeRestriction && $currentRuns > 1 && $deductionPercentage > 0) {
             $extraRuns = $currentRuns - 1;
             $deduction = $itemPoints * ($deductionPercentage / 100.0) * $extraRuns;
-            $currentScore = max($itemPoints - $deduction, 0);
+            $currentScore = round(max($itemPoints - $deduction, 0), 2);
         }
         $scoreData[$itemID] = $currentScore;
         
@@ -132,7 +132,8 @@ class ActivityProgressController extends Controller
             'draftSelectedLanguage'=> 'nullable|string', // to preserve user's language choice
             'draftScore'           => 'nullable|numeric',  // new field for storing the partial/aggregated score
             'draftItemTimes'       => 'nullable|string',   // new field for per-item times (as JSON)
-            'draftCheckCodeRuns'   => 'nullable|json',
+            'draftCheckCodeRuns'   => 'nullable|json', // per-item check code run counts
+            'draftDeductedScore'   => 'nullable|json', // per-item deducted scores
         ]);
         
         // Update or create the activity-level progress record.
@@ -150,6 +151,7 @@ class ActivityProgressController extends Controller
                 'draftScore'            => $validatedData['draftScore'] ?? 0,
                 'draftItemTimes'        => $validatedData['draftItemTimes'] ?? null,
                 'draftCheckCodeRuns'    => $validatedData['draftCheckCodeRuns'] ?? null,
+                'draftDeductedScore'    => $validatedData['draftDeductedScore'] ?? null,
             ]
         );
         
@@ -206,12 +208,17 @@ class ActivityProgressController extends Controller
             ? json_decode($progress->draftCheckCodeRuns, true)
             : null;
 
+            $decodedDeductedScore = $progress->draftDeductedScore 
+            ? json_decode($progress->draftDeductedScore, true)
+            : null;
+
             // Rename fields for client consumption.
             $progress->files = $decodedFiles;
             $progress->testCaseResults = $decodedResults;
             $progress->selectedLanguage = $progress->draftSelectedLanguage;
             $progress->itemTimes = $decodedItemTimes;
             $progress->checkCodeRuns = $decodedCheckCodeRuns;
+            $progress->deductedScore = $decodedDeductedScore;
             
             // Optionally remove the raw fields.
             unset($progress->draftFiles, $progress->draftTestCaseResults, $progress->draftSelectedLanguage);
