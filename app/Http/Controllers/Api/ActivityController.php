@@ -643,9 +643,11 @@ class ActivityController extends Controller
                 'items.*.itemTypeID'    => 'required_with:items|exists:item_types,itemTypeID',
                 'items.*.actItemPoints' => 'required_with:items|numeric|min:1',
                 'finalScorePolicy'      => 'sometimes|required|in:last_attempt,highest_score',
-                'checkCodeRestriction'  => 'sometimes|boolean',
-                'maxCheckCodeRuns'      => 'sometimes|integer|min:1',
-                'checkCodeDeduction'    => 'sometimes|numeric|min:0',
+                'examMode'  => 'sometimes|boolean',
+                'randomizedItems'  => 'sometimes|boolean',
+                'checkCodeRestriction' => 'sometimes|boolean',
+                'maxCheckCodeRuns'     => 'sometimes|nullable|integer|min:1|required_if:checkCodeRestriction,true',
+                'checkCodeDeduction'   => 'sometimes|nullable|numeric|min:0|required_if:checkCodeRestriction,true',
             ]);
 
             if ($validator->fails()) {
