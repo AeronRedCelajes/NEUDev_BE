@@ -275,6 +275,8 @@ class ActivityController extends Controller
                 'items.*.actItemPoints' => 'required|numeric|min:1',
                 'finalScorePolicy'      => 'required|in:last_attempt,highest_score',
                 'checkCodeRestriction'  => 'sometimes|boolean',
+                'examMode' => 'sometimes|boolean',
+                'randomizedItems' => 'sometimes|boolean',
                 'maxCheckCodeRuns'      => 'sometimes|integer|min:1',
                 'checkCodeDeduction'    => 'sometimes|numeric|min:0',
             ]);
@@ -300,6 +302,8 @@ class ActivityController extends Controller
                 'actAttempts'      => $request->actAttempts,
                 'classAvgScore'    => null,
                 'finalScorePolicy' => $request->finalScorePolicy,
+                'examMode'           => $request->examMode ?? false,
+                'randomizedItems'    => $request->randomizedItems ?? false,
                 'checkCodeRestriction'=> $request->checkCodeRestriction ?? false,
                 'maxCheckCodeRuns'    => $request->maxCheckCodeRuns,
                 'checkCodeDeduction'  => $request->checkCodeDeduction,
@@ -569,7 +573,7 @@ class ActivityController extends Controller
             // Format them using our helper
             $act->classAvgScore = $this->formatScore($rawAvg);
             $act->highestScore  = $this->formatScore($rawMax);
-            
+
             return $act;
         });
     }
@@ -661,7 +665,8 @@ class ActivityController extends Controller
             $activity->update($request->only([
                 'actTitle', 'actDesc', 'actDifficulty', 'actDuration',
                 'actAttempts', 'openDate', 'closeDate', 'maxPoints',
-                'finalScorePolicy', 'checkCodeRestriction', 'maxCheckCodeRuns', 'checkCodeDeduction'
+                'finalScorePolicy', 'examMode', 'randomizedItems',
+                'checkCodeRestriction', 'maxCheckCodeRuns', 'checkCodeDeduction'
             ]));
 
             if ($request->has('closeDate')) {
