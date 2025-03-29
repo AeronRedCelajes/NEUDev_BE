@@ -72,9 +72,14 @@ class ActivityProgressController extends Controller
         $runsData = $progress->draftCheckCodeRuns ? json_decode($progress->draftCheckCodeRuns, true) : [];
         $scoreData = $progress->draftDeductedScore ? json_decode($progress->draftDeductedScore, true) : [];
         
-        // Increment run count for this item.
-        $currentRuns = isset($runsData[$itemID]) ? $runsData[$itemID] : 0;
-        $currentRuns++;
+        // If the item key does not exist or is not numeric, default to 0
+        if (!isset($runsData[$itemID]) || !is_numeric($runsData[$itemID])) {
+            $runsData[$itemID] = 0;
+        }
+
+        $currentRuns = (int) $runsData[$itemID]; // force integer
+        $currentRuns++; // now this won't break
+        
         // Enforce maximum allowed runs.
         if ($currentRuns > $maxRuns) {
             $currentRuns = $maxRuns;
