@@ -83,15 +83,14 @@ class ActivityProgressController extends Controller
         }
         $runsData[$itemID] = $currentRuns;
         
-        // (Optional) Calculate current score if you need it internally:
+        // Calculate current score (for internal use):
         $currentScore = $itemPoints;
         if ($checkCodeRestriction && $currentRuns > 1 && $deductionPercentage > 0) {
             $extraRuns = $currentRuns - 1;
-            // Deduct percentage per extra run:
             $currentScore = round(max($itemPoints - ($itemPoints * ($deductionPercentage / 100.0) * $extraRuns), 0), 2);
         }
         
-        // Save the run count (we no longer send the deducted score to the frontend).
+        // Save the updated run count.
         $progress->draftCheckCodeRuns = json_encode($runsData);
         $progress->save();
         
@@ -99,10 +98,10 @@ class ActivityProgressController extends Controller
             'message'   => 'Check code run completed.',
             'itemID'    => $itemID,
             'runCount'  => $currentRuns,
-            // Optionally, you can send currentScore if needed on backend but frontend will ignore it:
             'itemScore' => $currentScore,
         ], 200);
     }
+
 
 
     /**
