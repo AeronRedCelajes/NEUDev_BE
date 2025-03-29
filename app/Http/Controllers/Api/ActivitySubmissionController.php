@@ -104,7 +104,12 @@ class ActivitySubmissionController extends Controller
             foreach ($createdSubmissions as $submission) {
                 // For each submission, assign the run count; default to 0 if not set.
                 $runs = isset($checkCodeData[$submission->itemID]) ? $checkCodeData[$submission->itemID] : 0;
-                $submission->checkCodeRuns = $runs;
+                // If you only want the runCount:
+                if (is_array($runs)) {
+                    $submission->checkCodeRuns = (int) ($runs['runCount'] ?? 0);
+                } else {
+                    $submission->checkCodeRuns = (int) $runs;
+                }
                 $submission->save();
             }
         }
@@ -123,8 +128,11 @@ class ActivitySubmissionController extends Controller
             $deductedScores = $progressRecord->draftDeductedScore ? json_decode($progressRecord->draftDeductedScore, true) : [];
             foreach ($createdSubmissions as $submission) {
                 $runs = isset($checkCodeData[$submission->itemID]) ? $checkCodeData[$submission->itemID] : 0;
-                $submission->checkCodeRuns = $runs;
-                // If a deducted score is recorded for this item, update the submission score.
+                if (is_array($runs)) {
+                    $submission->checkCodeRuns = (int) ($runs['runCount'] ?? 0);
+                } else {
+                    $submission->checkCodeRuns = (int) $runs;
+                }
                 if (isset($deductedScores[$submission->itemID])) {
                     $submission->score = $deductedScores[$submission->itemID];
                 }

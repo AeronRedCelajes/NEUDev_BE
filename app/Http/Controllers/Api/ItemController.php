@@ -115,7 +115,7 @@ class ItemController extends Controller
                 $numTestCases = count($validatedData['testCases']);
                 $totalPoints = $validatedData['itemPoints'];
                 // Calculate the raw (exact) value for each test case.
-                $rawValue = $totalPoints / $numTestCases;
+                $rawValue = round($totalPoints / $numTestCases, 2);
                 
                 // Use the same raw value for each test case.
                 foreach ($validatedData['testCases'] as $testCase) {
@@ -236,7 +236,7 @@ class ItemController extends Controller
                     $numTestCases = count($validatedData['testCases']);
                     $totalPoints = $validatedData['itemPoints'];
                     // Calculate the raw value for each test case.
-                    $rawValue = $totalPoints / $numTestCases;
+                    $rawValue = round($totalPoints / $numTestCases, 2);
                     
                     // Create each test case with the same raw value.
                     foreach ($validatedData['testCases'] as $testCase) {

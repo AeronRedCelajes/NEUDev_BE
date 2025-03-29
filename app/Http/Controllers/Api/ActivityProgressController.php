@@ -72,22 +72,17 @@ class ActivityProgressController extends Controller
         $runsData = $progress->draftCheckCodeRuns ? json_decode($progress->draftCheckCodeRuns, true) : [];
         $scoreData = $progress->draftDeductedScore ? json_decode($progress->draftDeductedScore, true) : [];
         
-        // If the item key does not exist or is not numeric, default to 0
-        if (!isset($runsData[$itemID]) || !is_numeric($runsData[$itemID])) {
+        // 1) Make sure runsData only has an integer
+        if (!isset($runsData[$itemID]) || !is_int($runsData[$itemID])) {
             $runsData[$itemID] = 0;
         }
-
-        $currentRuns = (int) $runsData[$itemID]; // force integer
-        $currentRuns++; // now this won't break
-        
-        // Enforce maximum allowed runs.
+        $currentRuns = $runsData[$itemID] + 1;
         if ($currentRuns > $maxRuns) {
             $currentRuns = $maxRuns;
         }
         $runsData[$itemID] = $currentRuns;
-        
-        // Calculate the current score.
-        // Start with full points.
+
+        // 2) Calculate the new score, store in $scoreData
         $currentScore = $itemPoints;
         if ($checkCodeRestriction && $currentRuns > 1 && $deductionPercentage > 0) {
             $extraRuns = $currentRuns - 1;
@@ -95,10 +90,10 @@ class ActivityProgressController extends Controller
             $currentScore = round(max($itemPoints - $deduction, 0), 2);
         }
         $scoreData[$itemID] = $currentScore;
-        
-        // Save the updated JSON fields.
-        $progress->draftCheckCodeRuns = $runsData;
-        $progress->draftDeductedScore = $scoreData;
+
+        // 3) Save them back to JSON
+        $progress->draftCheckCodeRuns = json_encode($runsData);
+        $progress->draftDeductedScore = json_encode($scoreData);
         $progress->save();
         
         return response()->json([
