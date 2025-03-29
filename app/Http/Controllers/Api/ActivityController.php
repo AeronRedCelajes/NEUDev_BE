@@ -643,11 +643,11 @@ class ActivityController extends Controller
                 'items.*.itemTypeID'    => 'required_with:items|exists:item_types,itemTypeID',
                 'items.*.actItemPoints' => 'required_with:items|numeric|min:1',
                 'finalScorePolicy'      => 'sometimes|required|in:last_attempt,highest_score',
-                'examMode'  => 'sometimes|boolean',
-                'randomizedItems'  => 'sometimes|boolean',
-                'checkCodeRestriction' => 'sometimes|boolean',
-                'maxCheckCodeRuns'     => 'sometimes|nullable|integer|min:1|required_if:checkCodeRestriction,true',
-                'checkCodeDeduction'   => 'sometimes|nullable|numeric|min:0|required_if:checkCodeRestriction,true',
+                'examMode'              => 'sometimes|boolean',
+                'randomizedItems'       => 'sometimes|boolean',
+                'checkCodeRestriction'  => 'sometimes|boolean',
+                'maxCheckCodeRuns'      => 'sometimes|nullable|integer|min:1|required_if:checkCodeRestriction,true',
+                'checkCodeDeduction'    => 'sometimes|nullable|numeric|min:0|required_if:checkCodeRestriction,true',
             ]);
 
             if ($validator->fails()) {
@@ -662,8 +662,8 @@ class ActivityController extends Controller
 
             // 2. If a new closeDate is provided and is in the future, clear completed_at
             if (
-                $request->has('closeDate')
-                && \Carbon\Carbon::parse($request->closeDate)->gt(now())
+                $request->has('closeDate') &&
+                \Carbon\Carbon::parse($request->closeDate)->gt(now())
             ) {
                 $activity->completed_at = null;
                 $activity->updated_at   = now();
@@ -678,11 +678,8 @@ class ActivityController extends Controller
                 'checkCodeRestriction', 'maxCheckCodeRuns', 'checkCodeDeduction'
             ]));
 
-            // 4. Check if closeDate *actually* changed
-            if (
-                $request->has('closeDate')
-                && $oldCloseDate !== $request->closeDate
-            ) {
+            // 4. Check if closeDate actually changed using Laravel's wasChanged method
+            if ($request->filled('closeDate') && $activity->wasChanged('closeDate')) {
                 // Dispatch the event to all students
                 $students = \DB::table('class_student')
                     ->where('classID', $activity->classID)
@@ -696,7 +693,7 @@ class ActivityController extends Controller
                 }
             }
 
-            // 5. Update finalScorePolicy if provided
+            // 5. Update finalScorePolicy if provided (ensure it is saved properly)
             if ($request->has('finalScorePolicy')) {
                 $activity->finalScorePolicy = $request->finalScorePolicy;
                 $activity->save();
@@ -763,6 +760,7 @@ class ActivityController extends Controller
             ], 500);
         }
     }
+
 
     /**
      * Delete an activity (Only for Teachers).
