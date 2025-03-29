@@ -161,6 +161,9 @@ class ActivityController extends Controller
                 'scorePercentage'    => $scorePercentage,
                 'attemptsTaken'      => $attemptsTaken,
                 'studentTimeSpent'   => $formattedTime,
+                'checkCodeRestriction'=> $activity->checkCodeRestriction ? 'Yes' : 'No',
+                'examMode'            => $activity->examMode ? 'Yes' : 'No',
+                'randomizedItems'     => $activity->randomizedItems ? 'Yes' : 'No',
             ];
         });
     }
@@ -566,7 +569,7 @@ class ActivityController extends Controller
             // Format them using our helper
             $act->classAvgScore = $this->formatScore($rawAvg);
             $act->highestScore  = $this->formatScore($rawMax);
-    
+            
             return $act;
         });
     }
