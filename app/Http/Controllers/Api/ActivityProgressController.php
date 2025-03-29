@@ -69,28 +69,38 @@ class ActivityProgressController extends Controller
             ]
         );
         
-        // Decode existing run count (as integer).
+        // Decode existing run count.
         $runsData = $progress->draftCheckCodeRuns ? json_decode($progress->draftCheckCodeRuns, true) : [];
-        
-        // Initialize if not set.
-        if (!isset($runsData[$itemID]) || !is_int($runsData[$itemID])) {
-            $runsData[$itemID] = 0;
+
+        // Retrieve the existing run count if available.
+        $existingRunCount = 0;
+        if (isset($runsData[$itemID])) {
+            if (is_array($runsData[$itemID]) && isset($runsData[$itemID]['runCount'])) {
+                $existingRunCount = $runsData[$itemID]['runCount'];
+            } elseif (is_int($runsData[$itemID])) {
+                $existingRunCount = $runsData[$itemID];
+            }
         }
-        
-        $currentRuns = $runsData[$itemID] + 1;
+
+        // Increment the run count.
+        $currentRuns = $existingRunCount + 1;
         if ($currentRuns > $maxRuns) {
             $currentRuns = $maxRuns;
         }
-        $runsData[$itemID] = $currentRuns;
-        
+
         // Calculate current score (for internal use):
         $currentScore = $itemPoints;
         if ($checkCodeRestriction && $currentRuns > 1 && $deductionPercentage > 0) {
             $extraRuns = $currentRuns - 1;
             $currentScore = round(max($itemPoints - ($itemPoints * ($deductionPercentage / 100.0) * $extraRuns), 0), 2);
         }
-        
-        // Save the updated run count.
+
+        // Save the updated run count as an object.
+        $runsData[$itemID] = [
+            'runCount'  => $currentRuns,
+            'itemScore' => $currentScore,
+        ];
+
         $progress->draftCheckCodeRuns = json_encode($runsData);
         $progress->save();
         
