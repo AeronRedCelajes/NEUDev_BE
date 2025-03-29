@@ -143,6 +143,7 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::put('/activities/{actID}/settings', [ActivityController::class, 'updateActivitySettingsByTeacher']);
 
         // ASSESSMENT PAGE: Under teacher prefix (for testing purposes):
+        Route::post('/activities/{actID}/check-code/{itemID}', [ActivityProgressController::class, 'runCheckCode']);
         Route::get('/activities/{actID}/progress', [ActivityProgressController::class, 'getProgress']);
         Route::post('/activities/{actID}/progress', [ActivityProgressController::class, 'saveProgress']);
         Route::delete('/activities/{actID}/progress', [ActivityProgressController::class, 'clearProgress']);
